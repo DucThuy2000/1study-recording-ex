@@ -206,6 +206,10 @@ async function stopRecording(message: MessageOf<'RECORDING_STOP'>): Promise<void
   const recorder = activeRecorder;
   if (!recorder || activeSessionId !== sessionId) {
     logger.warn('ignoring stop for an unknown session', { sessionId, activeSessionId });
+    // Nothing is running here, so this document is dead weight (a start that
+    // failed, or a stop replayed after a service-worker restart). Close it
+    // rather than leaving an idle offscreen document behind.
+    if (activeSessionId === undefined) await offscreenApi.closeDocument();
     return;
   }
 
