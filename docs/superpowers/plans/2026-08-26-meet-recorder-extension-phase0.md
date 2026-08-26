@@ -1699,7 +1699,7 @@ The buffer is allocated once in the constructor and reused every tick — no per
 
 - [ ] **Step 11: Wire mixing and monitoring into the offscreen entrypoint, and add banners to content.ts**
 
-Replace the body of `entrypoints/offscreen/main.ts`'s `RECORDING_STARTED` handler and remove `playTabAudioLocally`:
+Replace the body of `entrypoints/offscreen/main.ts`'s `RECORDING_STARTED` handler and remove `playTabAudioLocally`. This also carries forward the `SessionStateMachine` wiring Task 2 added under a controller addendum (Ruling 1 in the SDD ledger) — keep those `READY`/`RECORDING`/`FINALIZING` transitions in place while adding this task's mixing and monitors on top; don't drop them:
 
 ```ts
 import { browser } from 'wxt/browser';
@@ -1709,6 +1709,7 @@ import { mixTabAndMic } from '@/src/offscreen-logic/audio-mixer';
 import { AudioLevelMonitor } from '@/src/offscreen-logic/audio-monitor';
 import { EventReporter } from '@/src/core/event-reporter';
 import { EventBus } from '@/src/core/event-bus';
+import { SessionStateMachine } from '@/src/core/state-machine';
 import { ChromeStorageAdapter } from '@/src/adapters/storage';
 import { createLogger } from '@/src/core/logger';
 import type { RecordingEvent } from '@/src/core/event-reporter';
@@ -1719,6 +1720,7 @@ const eventReporter = new EventReporter(new ChromeStorageAdapter(), bus, logger)
 
 let activeRecorder: SessionRecorder | undefined;
 let activeSessionId: string | undefined;
+let activeStateMachine: SessionStateMachine | undefined;
 let micMonitor: AudioLevelMonitor | undefined;
 let tabMonitor: AudioLevelMonitor | undefined;
 
@@ -1746,6 +1748,9 @@ browser.runtime.onMessage.addListener((message: Message) => {
       const { mixedStream, ctx, tabSource, micSource } = await mixTabAndMic(tabStream);
 
       activeSessionId = message.sessionId;
+      activeStateMachine = new SessionStateMachine(message.sessionId, new ChromeStorageAdapter(), logger);
+      await activeStateMachine.transition('READY', 'preflight ok');
+      await activeStateMachine.transition('RECORDING', 'start');
       activeRecorder = new SessionRecorder(message.sessionId, mixedStream, message.tier);
       activeRecorder.start();
 
@@ -1777,6 +1782,8 @@ browser.runtime.onMessage.addListener((message: Message) => {
       tabMonitor?.stop();
       const blob = await activeRecorder!.stop();
       triggerDownload(blob, message.sessionId);
+      await activeStateMachine?.transition('FINALIZING', 'stop requested');
+      activeStateMachine = undefined;
       activeRecorder = undefined;
       activeSessionId = undefined;
       logger.info('offscreen recording stopped, file downloaded', { sessionId: message.sessionId });
