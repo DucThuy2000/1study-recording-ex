@@ -3,7 +3,6 @@ import { browser } from 'wxt/browser';
 import type { Message } from '@/src/shared/messages';
 import { ChromeTabCaptureApi, ChromeOffscreenApi } from '@/src/adapters/chrome-api';
 import { createLogger } from '@/src/core/logger';
-import type { TierName } from '@/src/shared/config';
 
 const logger = createLogger('background');
 const tabCapture = new ChromeTabCaptureApi();
@@ -26,12 +25,10 @@ export default defineBackground(() => {
           'Recording the class session tab for teaching quality review.',
         );
         const sessionId = makeSessionId();
-        const tier: TierName = 'MID';
         await browser.runtime.sendMessage({
           type: 'RECORDING_STARTED',
           sessionId,
           streamId,
-          tier,
         } satisfies Message);
         logger.info('recording started', { sessionId, tabId: message.tabId });
       })();

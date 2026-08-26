@@ -1,10 +1,9 @@
 import type { SessionState } from '../core/state-machine';
-import type { TierName } from './config';
 
 export type Message =
   | { type: 'START_RECORDING'; tabId: number }
   | { type: 'STOP_RECORDING'; sessionId: string }
-  | { type: 'RECORDING_STARTED'; sessionId: string; streamId: string; tier: TierName }
+  | { type: 'RECORDING_STARTED'; sessionId: string; streamId: string }
   | { type: 'RECORDING_STATE'; sessionId: string; state: SessionState; elapsedMs: number }
   | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }
   | { type: 'VIDEO_STALLED'; sessionId: string; gapMs: number; atMs: number }

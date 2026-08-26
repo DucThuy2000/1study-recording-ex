@@ -8,6 +8,7 @@ import { EventBus } from '@/src/core/event-bus';
 import { SessionStateMachine } from '@/src/core/state-machine';
 import { ChromeStorageAdapter } from '@/src/adapters/storage';
 import { createLogger } from '@/src/core/logger';
+import { pickDeviceTier } from '@/src/core/device-tier';
 import type { RecordingEvent } from '@/src/core/event-reporter';
 
 const logger = createLogger('offscreen');
@@ -47,7 +48,11 @@ browser.runtime.onMessage.addListener((message: Message) => {
       activeStateMachine = new SessionStateMachine(message.sessionId, new ChromeStorageAdapter(), logger);
       await activeStateMachine.transition('READY', 'preflight ok');
       await activeStateMachine.transition('RECORDING', 'start');
-      activeRecorder = new SessionRecorder(message.sessionId, mixedStream, message.tier);
+      const tier = pickDeviceTier({
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+      });
+      activeRecorder = new SessionRecorder(message.sessionId, mixedStream, tier);
       activeRecorder.start();
 
       micMonitor = new AudioLevelMonitor(ctx, micSource, (event) => {
