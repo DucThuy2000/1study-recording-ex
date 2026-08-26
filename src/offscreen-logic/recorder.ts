@@ -4,6 +4,12 @@ import { createLogger } from '../core/logger';
 
 const logger = createLogger('recorder');
 
+export interface RecordingResult {
+  blob: Blob;
+  /** Chunks whose OPFS write failed and are therefore absent from `blob`. */
+  missingChunkIndices: number[];
+}
+
 export class SessionRecorder {
   private mediaRecorder: MediaRecorder | undefined;
   private readonly writer: ChunkWriter;
@@ -39,7 +45,7 @@ export class SessionRecorder {
     logger.info('recording started', { sessionId: this.sessionId, mimeType, tier: this.tier });
   }
 
-  async stop(): Promise<Blob> {
+  async stop(): Promise<RecordingResult> {
     const recorder = this.mediaRecorder;
     if (!recorder) throw new Error('recorder not started');
     await new Promise<void>((resolve) => {
@@ -51,6 +57,13 @@ export class SessionRecorder {
     // before onstop resolves. Wait for every write this session issued before reading
     // the files back, or readAll() can race a chunk that hasn't landed yet.
     await Promise.all(this.pendingWrites);
-    return this.writer.readAll();
+    const { blob, missingIndices } = await this.writer.readAll();
+    if (missingIndices.length > 0) {
+      logger.error('chunks missing from the finished recording', {
+        sessionId: this.sessionId,
+        missingChunkIndices: missingIndices,
+      });
+    }
+    return { blob, missingChunkIndices: missingIndices };
   }
 }

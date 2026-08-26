@@ -1,3 +1,9 @@
+export interface ReadAllResult {
+  blob: Blob;
+  /** Indices whose file was never written (their `write()` failed). Reported as OPFS_ERROR by the caller. */
+  missingIndices: number[];
+}
+
 export class ChunkWriter {
   private nextIndex = 0;
 
@@ -21,14 +27,25 @@ export class ChunkWriter {
     return index;
   }
 
-  async readAll(): Promise<Blob> {
+  /**
+   * Concatenates every chunk that made it to disk. A chunk whose write failed
+   * (logged, not thrown, so the class kept recording — R12) leaves no file
+   * behind; skip it and report the gap instead of throwing `NotFoundError` out
+   * of the whole read, which would abort the caller's stop/finalize path.
+   */
+  async readAll(): Promise<ReadAllResult> {
     const dir = await this.getSessionDir();
     const parts: Blob[] = [];
+    const missingIndices: number[] = [];
     for (let i = 0; i < this.nextIndex; i++) {
       const name = `chunk_${String(i).padStart(5, '0')}.webm`;
-      const handle = await dir.getFileHandle(name);
-      parts.push(await handle.getFile());
+      try {
+        const handle = await dir.getFileHandle(name);
+        parts.push(await handle.getFile());
+      } catch {
+        missingIndices.push(i);
+      }
     }
-    return new Blob(parts, { type: 'video/webm' });
+    return { blob: new Blob(parts, { type: 'video/webm' }), missingIndices };
   }
 }
