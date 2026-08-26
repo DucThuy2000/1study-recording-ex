@@ -10,6 +10,7 @@ export const CONFIG = {
   MEMORY_BUFFER_MAX_BYTES: 200 * 1024 ** 2,
   AUDIO_BITRATE: 64_000,
   STALL_GAP_MS: 3000,
+  EVENT_QUEUE_MAX_PENDING: 500,
   TIERS: {
     LOW: { width: 854, height: 480, fps: 12, bitrate: 600_000, codecs: ['vp8'] },
     MID: { width: 1280, height: 720, fps: 15, bitrate: 1_200_000, codecs: ['vp9', 'vp8'] },

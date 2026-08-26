@@ -1,3 +1,4 @@
+import { CONFIG } from '../shared/config';
 import type { KeyValueStore } from '../adapters/storage';
 import type { EventBus } from './event-bus';
 import type { Logger } from './logger';
@@ -18,7 +19,6 @@ export interface RecordingEvent {
 }
 
 const PENDING_EVENTS_KEY = 'pendingEvents';
-const MAX_PENDING = 500;
 
 export class EventReporter {
   constructor(
@@ -32,7 +32,7 @@ export class EventReporter {
     this.logger.warn(`event: ${type}`, payload);
     const pending = (await this.store.get<RecordingEvent[]>(PENDING_EVENTS_KEY)) ?? [];
     pending.push(event);
-    if (pending.length > MAX_PENDING) pending.shift();
+    if (pending.length > CONFIG.EVENT_QUEUE_MAX_PENDING) pending.shift();
     await this.store.set(PENDING_EVENTS_KEY, pending);
     this.bus.emit('event', event);
   }
