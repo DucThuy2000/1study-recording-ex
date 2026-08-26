@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertNever } from './assert-never';
+import { assertNever } from '../assert';
 
 describe('assertNever', () => {
   it('throws with the unhandled value in the message', () => {

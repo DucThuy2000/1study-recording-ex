@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ok, err, isOk, isErr } from './result';
+import { ok, err, isOk, isErr } from '../result';
 
 describe('Result', () => {
   it('ok() produces a value result recognized by isOk', () => {

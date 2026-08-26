@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { EventReporter, type RecordingEvent } from './event-reporter';
-import { InMemoryStore } from '../adapters/storage';
-import { EventBus } from './event-bus';
-import { createLogger } from './logger';
+import { EventReporter, type RecordingEvent } from '../event-reporter';
+import { InMemoryStore } from '../../adapters/storage';
+import { EventBus } from '../event-bus';
+import { createLogger } from '../logger';
 
 function makeReporter() {
   const store = new InMemoryStore();
@@ -17,8 +17,8 @@ describe('EventReporter', () => {
     await reporter.report('MIC_SILENT', { sessionId: 's1' });
     const pending = await store.get<RecordingEvent[]>('pendingEvents');
     expect(pending).toHaveLength(1);
-    expect(pending?.[0].type).toBe('MIC_SILENT');
-    expect(pending?.[0].payload).toEqual({ sessionId: 's1' });
+    expect(pending?.[0]?.type).toBe('MIC_SILENT');
+    expect(pending?.[0]?.payload).toEqual({ sessionId: 's1' });
   });
 
   it('emits the event on the bus', async () => {
@@ -27,7 +27,7 @@ describe('EventReporter', () => {
     bus.on('event', (e) => received.push(e));
     await reporter.report('TAB_AUDIO_SILENT', {});
     expect(received).toHaveLength(1);
-    expect(received[0].type).toBe('TAB_AUDIO_SILENT');
+    expect(received[0]?.type).toBe('TAB_AUDIO_SILENT');
   });
 
   it('caps the queue at 500 entries, dropping the oldest', async () => {
@@ -37,6 +37,6 @@ describe('EventReporter', () => {
     }
     const pending = await store.get<RecordingEvent[]>('pendingEvents');
     expect(pending).toHaveLength(500);
-    expect(pending?.[0].payload).toEqual({ i: 1 });
+    expect(pending?.[0]?.payload).toEqual({ i: 1 });
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { ChromeStorageAdapter, InMemoryStore } from './storage';
+import { ChromeStorageAdapter, InMemoryStore } from '../storage';
 
 describe('InMemoryStore', () => {
   it('round-trips a value', async () => {

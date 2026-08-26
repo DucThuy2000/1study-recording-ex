@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EventBus } from './event-bus';
+import { EventBus } from '../event-bus';
 
-interface Events {
+type Events = {
   ping: { count: number };
-}
+};
 
 describe('EventBus', () => {
   it('delivers emitted payloads to subscribed listeners', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SessionStateMachine } from './state-machine';
-import { InMemoryStore } from '../adapters/storage';
-import { createLogger } from './logger';
+import { SessionStateMachine } from '../state-machine';
+import { InMemoryStore } from '../../adapters/storage';
+import { createLogger } from '../logger';
 
 function makeMachine() {
   const store = new InMemoryStore();
