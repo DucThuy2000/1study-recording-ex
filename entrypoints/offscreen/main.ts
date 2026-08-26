@@ -1,27 +1,30 @@
 import { browser } from 'wxt/browser';
 import type { Message } from '@/src/shared/messages';
 import { SessionRecorder } from '@/src/offscreen-logic/recorder';
-import { createLogger } from '@/src/core/logger';
+import { mixTabAndMic } from '@/src/offscreen-logic/audio-mixer';
+import { AudioLevelMonitor } from '@/src/offscreen-logic/audio-monitor';
+import { EventReporter } from '@/src/core/event-reporter';
+import { EventBus } from '@/src/core/event-bus';
 import { SessionStateMachine } from '@/src/core/state-machine';
 import { ChromeStorageAdapter } from '@/src/adapters/storage';
+import { createLogger } from '@/src/core/logger';
+import type { RecordingEvent } from '@/src/core/event-reporter';
 
 const logger = createLogger('offscreen');
+const bus = new EventBus<{ event: RecordingEvent }>();
+const eventReporter = new EventReporter(new ChromeStorageAdapter(), bus, logger);
+
 let activeRecorder: SessionRecorder | undefined;
 let activeSessionId: string | undefined;
 let activeStateMachine: SessionStateMachine | undefined;
+let micMonitor: AudioLevelMonitor | undefined;
+let tabMonitor: AudioLevelMonitor | undefined;
 
 async function openTabStream(streamId: string): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
     audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
     video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
   } as MediaStreamConstraints);
-}
-
-function playTabAudioLocally(stream: MediaStream): void {
-  // Without this, tabCapture silently stops the tab's audio from reaching the
-  // teacher's speakers — they'd be recording a class they can no longer hear (R4/R5).
-  const ctx = new AudioContext();
-  ctx.createMediaStreamSource(stream).connect(ctx.destination);
 }
 
 function triggerDownload(blob: Blob, sessionId: string): void {
@@ -37,19 +40,42 @@ function triggerDownload(blob: Blob, sessionId: string): void {
 browser.runtime.onMessage.addListener((message: Message) => {
   if (message.type === 'RECORDING_STARTED') {
     void (async () => {
-      const stream = await openTabStream(message.streamId);
-      playTabAudioLocally(stream);
+      const tabStream = await openTabStream(message.streamId);
+      const { mixedStream, ctx, tabSource, micSource } = await mixTabAndMic(tabStream);
+
       activeSessionId = message.sessionId;
       activeStateMachine = new SessionStateMachine(message.sessionId, new ChromeStorageAdapter(), logger);
       await activeStateMachine.transition('READY', 'preflight ok');
       await activeStateMachine.transition('RECORDING', 'start');
-      activeRecorder = new SessionRecorder(message.sessionId, stream, message.tier);
+      activeRecorder = new SessionRecorder(message.sessionId, mixedStream, message.tier);
       activeRecorder.start();
+
+      micMonitor = new AudioLevelMonitor(ctx, micSource, (event) => {
+        void eventReporter.report('MIC_SILENT', { sessionId: message.sessionId });
+        void browser.runtime.sendMessage({
+          type: 'AUDIO_ALERT',
+          source: 'mic',
+          silent: event === 'ALERT',
+        } satisfies Message);
+      });
+      tabMonitor = new AudioLevelMonitor(ctx, tabSource, (event) => {
+        void eventReporter.report('TAB_AUDIO_SILENT', { sessionId: message.sessionId });
+        void browser.runtime.sendMessage({
+          type: 'AUDIO_ALERT',
+          source: 'tab',
+          silent: event === 'ALERT',
+        } satisfies Message);
+      });
+      micMonitor.start();
+      tabMonitor.start();
+
       logger.info('offscreen recording started', { sessionId: message.sessionId });
     })();
   }
   if (message.type === 'STOP_RECORDING' && activeRecorder && activeSessionId === message.sessionId) {
     void (async () => {
+      micMonitor?.stop();
+      tabMonitor?.stop();
       const blob = await activeRecorder!.stop();
       triggerDownload(blob, message.sessionId);
       await activeStateMachine?.transition('FINALIZING', 'stop requested');
