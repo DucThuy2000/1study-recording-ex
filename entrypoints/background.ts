@@ -1,3 +1,7 @@
+import { createLogger } from '@/src/core/logger';
+
+const logger = createLogger('background');
+
 export default defineBackground(() => {
-  console.log('Hello background!', { id: browser.runtime.id });
+  logger.info('service worker started');
 });

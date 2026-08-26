@@ -1,6 +1,10 @@
+import { createLogger } from '@/src/core/logger';
+
+const logger = createLogger('content');
+
 export default defineContentScript({
-  matches: ['*://*.google.com/*'],
+  matches: ['*://meet.google.com/*'],
   main() {
-    console.log('Hello content.');
+    logger.info('content script loaded', { url: location.href });
   },
 });
