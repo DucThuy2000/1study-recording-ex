@@ -12,6 +12,10 @@
 
 ## Global Constraints
 
+- **File naming:** never name a file after the single function/export it holds (e.g. `assert-never.ts` for `assertNever`) — name it after the concept/domain it covers (`assert.ts`, `rms.ts`, `tab-guard.ts`). Files that already do this throughout the plan need no change; this only affected `assert.ts` in Task 1.
+- **Test file location:** every test file lives in a `test/` subfolder of the directory it tests, not colocated next to its source file — `src/core/foo.ts` is tested by `src/core/test/foo.test.ts`, `src/adapters/bar.ts` by `src/adapters/test/bar.test.ts`. Every task below already reflects this; a test file one level deeper than its source needs one extra `../` in its relative imports (two extra `../` for an import that already climbed a directory, e.g. `src/core/test/x.test.ts` importing `src/adapters/y.ts` is `../../adapters/y`, not `../adapters/y`).
+- **`noUncheckedIndexedAccess` and `verbatimModuleSyntax` are on** (inherited from WXT's generated `.wxt/tsconfig.json`, confirmed by running `tsc --noEmit` against Task 1's actual output). Concretely: `arr[i]` and `arr?.[i]` are typed `T | undefined` — chain another `?.` before touching a property, or non-null-assert with `!` when you can prove by construction that the element exists (e.g. `stream.getVideoTracks()[0]!` right after requesting a stream with a video track). And: a symbol imported only for a type position must use `import type { X }` (or `import { type X, ... }`) — every code block in this plan already does this correctly; keep doing it in anything you write beyond what's shown.
+
 - TypeScript `strict: true`; no `any` (use `unknown` + type guards). [spec 4.5]
 - No singletons, no module-level mutable globals for anything stateful — use constructor injection so every class is testable without a real browser. [spec 4.5]
 - All numeric/threshold constants live in `src/shared/config.ts`, no magic numbers scattered in logic. [spec 4.5]
@@ -49,7 +53,7 @@
   src/
     core/
       result.ts                Result<T,E>                              [Task 1]
-      assert-never.ts          exhaustive-switch helper                 [Task 1]
+      assert.ts                exhaustive-switch helper                 [Task 1]
       logger.ts                leveled logger                           [Task 1]
       state-machine.ts         SessionStateMachine                      [Task 1]
       event-bus.ts             typed pub/sub                            [Task 1]
@@ -87,14 +91,14 @@
 
 **Files:**
 - Create: `wxt.config.ts`, `vitest.config.ts`, `tsconfig.json` (edited after `wxt init`), `package.json` (via `wxt init`)
-- Create: `src/core/result.ts`, `src/core/result.test.ts`
-- Create: `src/core/assert-never.ts`, `src/core/assert-never.test.ts`
-- Create: `src/core/logger.ts`, `src/core/logger.test.ts`
-- Create: `src/adapters/storage.ts`, `src/adapters/storage.test.ts`
-- Create: `src/core/event-bus.ts`, `src/core/event-bus.test.ts`
-- Create: `src/core/state-machine.ts`, `src/core/state-machine.test.ts`
-- Create: `src/core/event-reporter.ts`, `src/core/event-reporter.test.ts`
-- Create: `src/shared/config.ts`, `src/shared/config.test.ts`
+- Create: `src/core/result.ts`, `src/core/test/result.test.ts`
+- Create: `src/core/assert.ts`, `src/core/test/assert.test.ts`
+- Create: `src/core/logger.ts`, `src/core/test/logger.test.ts`
+- Create: `src/adapters/storage.ts`, `src/adapters/test/storage.test.ts`
+- Create: `src/core/event-bus.ts`, `src/core/test/event-bus.test.ts`
+- Create: `src/core/state-machine.ts`, `src/core/test/state-machine.test.ts`
+- Create: `src/core/event-reporter.ts`, `src/core/test/event-reporter.test.ts`
+- Create: `src/shared/config.ts`, `src/shared/test/config.test.ts`
 - Create: `src/shared/messages.ts`
 - Create: `entrypoints/background.ts`, `entrypoints/content.ts`, `entrypoints/popup/index.html`, `entrypoints/popup/main.ts`
 
@@ -178,11 +182,11 @@ Edit `tsconfig.json` (it extends WXT's generated `.wxt/tsconfig.json`) to add:
 
 - [ ] **Step 6: `Result` type — write the failing test**
 
-`src/core/result.test.ts`:
+`src/core/test/result.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { ok, err, isOk, isErr } from './result';
+import { ok, err, isOk, isErr } from '../result';
 
 describe('Result', () => {
   it('ok() produces a value result recognized by isOk', () => {
@@ -235,17 +239,17 @@ export function isErr<T, E>(r: Result<T, E>): r is { ok: false; error: E } {
 Run: `npm test -- result.test.ts` → PASS
 
 ```bash
-git add src/core/result.ts src/core/result.test.ts
+git add src/core/result.ts src/core/test/result.test.ts
 git commit -m "feat: add Result<T,E> type"
 ```
 
 - [ ] **Step 10: `assertNever` — write the failing test, implement, pass, commit**
 
-`src/core/assert-never.test.ts`:
+`src/core/test/assert.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { assertNever } from './assert-never';
+import { assertNever } from '../assert';
 
 describe('assertNever', () => {
   it('throws with the unhandled value in the message', () => {
@@ -255,7 +259,7 @@ describe('assertNever', () => {
 });
 ```
 
-`src/core/assert-never.ts`:
+`src/core/assert.ts`:
 
 ```ts
 export function assertNever(value: never): never {
@@ -263,20 +267,20 @@ export function assertNever(value: never): never {
 }
 ```
 
-Run: `npm test -- assert-never.test.ts` → PASS, then:
+Run: `npm test -- assert.test.ts` → PASS, then:
 
 ```bash
-git add src/core/assert-never.ts src/core/assert-never.test.ts
+git add src/core/assert.ts src/core/test/assert.test.ts
 git commit -m "feat: add assertNever exhaustiveness helper"
 ```
 
 - [ ] **Step 11: `Logger` — write the failing test**
 
-`src/core/logger.test.ts`:
+`src/core/test/logger.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createLogger } from './logger';
+import { createLogger } from '../logger';
 
 describe('createLogger', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -343,18 +347,18 @@ export function createLogger(scope: string, minLevel: LogLevel = 'info'): Logger
 Run: `npm test -- logger.test.ts` → PASS
 
 ```bash
-git add src/core/logger.ts src/core/logger.test.ts
+git add src/core/logger.ts src/core/test/logger.test.ts
 git commit -m "feat: add leveled logger"
 ```
 
 - [ ] **Step 15: `KeyValueStore` — write the failing test**
 
-`src/adapters/storage.test.ts`:
+`src/adapters/test/storage.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest';
-import { fakeBrowser } from 'wxt/testing';
-import { ChromeStorageAdapter, InMemoryStore } from './storage';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { ChromeStorageAdapter, InMemoryStore } from '../storage';
 
 describe('InMemoryStore', () => {
   it('round-trips a value', async () => {
@@ -426,21 +430,21 @@ export class InMemoryStore implements KeyValueStore {
 Run: `npm test -- storage.test.ts` → PASS
 
 ```bash
-git add src/adapters/storage.ts src/adapters/storage.test.ts
+git add src/adapters/storage.ts src/adapters/test/storage.test.ts
 git commit -m "feat: add KeyValueStore with Chrome and in-memory adapters"
 ```
 
 - [ ] **Step 19: `EventBus` — write the failing test**
 
-`src/core/event-bus.test.ts`:
+`src/core/test/event-bus.test.ts`:
 
 ```ts
 import { describe, it, expect, vi } from 'vitest';
-import { EventBus } from './event-bus';
+import { EventBus } from '../event-bus';
 
-interface Events {
+type Events = {
   ping: { count: number };
-}
+};
 
 describe('EventBus', () => {
   it('delivers emitted payloads to subscribed listeners', () => {
@@ -519,19 +523,19 @@ export class EventBus<Events extends Record<string, unknown>> {
 Run: `npm test -- event-bus.test.ts` → PASS
 
 ```bash
-git add src/core/event-bus.ts src/core/event-bus.test.ts
+git add src/core/event-bus.ts src/core/test/event-bus.test.ts
 git commit -m "feat: add typed EventBus"
 ```
 
 - [ ] **Step 23: `SessionStateMachine` — write the failing test**
 
-`src/core/state-machine.test.ts`:
+`src/core/test/state-machine.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { SessionStateMachine } from './state-machine';
-import { InMemoryStore } from '../adapters/storage';
-import { createLogger } from './logger';
+import { SessionStateMachine } from '../state-machine';
+import { InMemoryStore } from '../../adapters/storage';
+import { createLogger } from '../logger';
 
 function makeMachine() {
   const store = new InMemoryStore();
@@ -650,20 +654,20 @@ export class SessionStateMachine {
 Run: `npm test -- state-machine.test.ts` → PASS
 
 ```bash
-git add src/core/state-machine.ts src/core/state-machine.test.ts
+git add src/core/state-machine.ts src/core/test/state-machine.test.ts
 git commit -m "feat: add SessionStateMachine"
 ```
 
 - [ ] **Step 27: `EventReporter` — write the failing test**
 
-`src/core/event-reporter.test.ts`:
+`src/core/test/event-reporter.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { EventReporter, type RecordingEvent } from './event-reporter';
-import { InMemoryStore } from '../adapters/storage';
-import { EventBus } from './event-bus';
-import { createLogger } from './logger';
+import { EventReporter, type RecordingEvent } from '../event-reporter';
+import { InMemoryStore } from '../../adapters/storage';
+import { EventBus } from '../event-bus';
+import { createLogger } from '../logger';
 
 function makeReporter() {
   const store = new InMemoryStore();
@@ -678,8 +682,8 @@ describe('EventReporter', () => {
     await reporter.report('MIC_SILENT', { sessionId: 's1' });
     const pending = await store.get<RecordingEvent[]>('pendingEvents');
     expect(pending).toHaveLength(1);
-    expect(pending?.[0].type).toBe('MIC_SILENT');
-    expect(pending?.[0].payload).toEqual({ sessionId: 's1' });
+    expect(pending?.[0]?.type).toBe('MIC_SILENT');
+    expect(pending?.[0]?.payload).toEqual({ sessionId: 's1' });
   });
 
   it('emits the event on the bus', async () => {
@@ -688,7 +692,7 @@ describe('EventReporter', () => {
     bus.on('event', (e) => received.push(e));
     await reporter.report('TAB_AUDIO_SILENT', {});
     expect(received).toHaveLength(1);
-    expect(received[0].type).toBe('TAB_AUDIO_SILENT');
+    expect(received[0]?.type).toBe('TAB_AUDIO_SILENT');
   });
 
   it('caps the queue at 500 entries, dropping the oldest', async () => {
@@ -698,7 +702,7 @@ describe('EventReporter', () => {
     }
     const pending = await store.get<RecordingEvent[]>('pendingEvents');
     expect(pending).toHaveLength(500);
-    expect(pending?.[0].payload).toEqual({ i: 1 });
+    expect(pending?.[0]?.payload).toEqual({ i: 1 });
   });
 });
 ```
@@ -761,17 +765,17 @@ This is the concrete, working half of R6 available in Phase 0: every abnormal st
 Run: `npm test -- event-reporter.test.ts` → PASS
 
 ```bash
-git add src/core/event-reporter.ts src/core/event-reporter.test.ts
+git add src/core/event-reporter.ts src/core/test/event-reporter.test.ts
 git commit -m "feat: add EventReporter as the local half of R6"
 ```
 
 - [ ] **Step 31: `CONFIG` + `pickMimeType` — write the failing test**
 
-`src/shared/config.test.ts`:
+`src/shared/test/config.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { CONFIG, pickMimeType } from './config';
+import { CONFIG, pickMimeType } from '../config';
 
 describe('CONFIG', () => {
   it('defines the three device tiers from the spec', () => {
@@ -851,7 +855,7 @@ export function pickMimeType(codecs: readonly string[]): string {
 Run: `npm test -- config.test.ts` → PASS
 
 ```bash
-git add src/shared/config.ts src/shared/config.test.ts
+git add src/shared/config.ts src/shared/test/config.test.ts
 git commit -m "feat: add CONFIG and pickMimeType codec fallback"
 ```
 
@@ -967,7 +971,7 @@ git commit -m "feat: wire minimal background/content/popup entrypoints"
 ### Task 2: tabCapture → Offscreen → Local File (spec Task 0.2 ⭐)
 
 **Files:**
-- Create: `src/adapters/chrome-api.ts`, `src/adapters/chrome-api.test.ts`
+- Create: `src/adapters/chrome-api.ts`, `src/adapters/test/chrome-api.test.ts`
 - Create: `src/offscreen-logic/chunk-writer.ts` (manual-tested — OPFS is unavailable in Vitest's jsdom)
 - Create: `src/offscreen-logic/recorder.ts` (manual-tested — `MediaRecorder` is unavailable in Vitest's jsdom)
 - Create: `entrypoints/offscreen/index.html`, `entrypoints/offscreen/main.ts`
@@ -982,11 +986,11 @@ git commit -m "feat: wire minimal background/content/popup entrypoints"
 
 - [ ] **Step 1: `ChromeTabCaptureApi` / `ChromeOffscreenApi` — write the failing tests**
 
-`src/adapters/chrome-api.test.ts`:
+`src/adapters/test/chrome-api.test.ts`:
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ChromeTabCaptureApi, ChromeOffscreenApi } from './chrome-api';
+import { ChromeTabCaptureApi, ChromeOffscreenApi } from '../chrome-api';
 
 describe('ChromeTabCaptureApi', () => {
   it('resolves the stream id returned by chrome.tabCapture.getMediaStreamId', async () => {
@@ -1096,7 +1100,7 @@ export async function getActiveTab(): Promise<{ id: number; url: string } | unde
 Run: `npm test -- chrome-api.test.ts` → PASS
 
 ```bash
-git add src/adapters/chrome-api.ts src/adapters/chrome-api.test.ts
+git add src/adapters/chrome-api.ts src/adapters/test/chrome-api.test.ts
 git commit -m "feat: add ChromeApi adapter for tabCapture/offscreen/tabs"
 ```
 
@@ -1413,8 +1417,8 @@ git commit -m "feat: capture tab via offscreen document and download a local Web
 ### Task 3: Mic Mixing + Audio Monitoring (spec Task 0.3 ⭐⭐)
 
 **Files:**
-- Create: `src/core/rms.ts`, `src/core/rms.test.ts`
-- Create: `src/core/silence-tracker.ts`, `src/core/silence-tracker.test.ts`
+- Create: `src/core/rms.ts`, `src/core/test/rms.test.ts`
+- Create: `src/core/silence-tracker.ts`, `src/core/test/silence-tracker.test.ts`
 - Create: `src/offscreen-logic/audio-mixer.ts` (manual-tested — `AudioContext`/`getUserMedia`)
 - Create: `src/offscreen-logic/audio-monitor.ts` (manual-tested — `AnalyserNode`)
 - Modify: `entrypoints/offscreen/main.ts`
@@ -1429,11 +1433,11 @@ git commit -m "feat: capture tab via offscreen document and download a local Web
 
 - [ ] **Step 1: `computeRms`/`isSilent` — write the failing test**
 
-`src/core/rms.test.ts`:
+`src/core/test/rms.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { computeRms, isSilent, SILENCE_RMS_THRESHOLD } from './rms';
+import { computeRms, isSilent, SILENCE_RMS_THRESHOLD } from '../rms';
 
 describe('computeRms', () => {
   it('is zero for silence', () => {
@@ -1493,13 +1497,13 @@ export function isSilent(rms: number): boolean {
 Run: `npm test -- rms.test.ts` → PASS
 
 ```bash
-git add src/core/rms.ts src/core/rms.test.ts
+git add src/core/rms.ts src/core/test/rms.test.ts
 git commit -m "feat: add RMS audio-level math"
 ```
 
 - [ ] **Step 5: `SilenceTracker` — write the failing test**
 
-`src/core/silence-tracker.test.ts`:
+`src/core/test/silence-tracker.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -1584,7 +1588,7 @@ export class SilenceTracker {
 Run: `npm test -- silence-tracker.test.ts` → PASS
 
 ```bash
-git add src/core/silence-tracker.ts src/core/silence-tracker.test.ts
+git add src/core/silence-tracker.ts src/core/test/silence-tracker.test.ts
 git commit -m "feat: add SilenceTracker for consecutive-silence alerting"
 ```
 
@@ -1624,7 +1628,7 @@ export async function mixTabAndMic(tabStream: MediaStream): Promise<MixResult> {
   micSource.connect(micGain).connect(dest);
   tabSource.connect(ctx.destination); // required so the teacher still hears students (R4/R5)
 
-  const mixedStream = new MediaStream([tabStream.getVideoTracks()[0], dest.stream.getAudioTracks()[0]]);
+  const mixedStream = new MediaStream([tabStream.getVideoTracks()[0]!, dest.stream.getAudioTracks()[0]!]);
 
   return { mixedStream, ctx, tabSource, micSource };
 }
@@ -1838,7 +1842,7 @@ Cases:
 - [ ] **Step 13: Commit**
 
 ```bash
-git add src/core/rms.ts src/core/rms.test.ts src/core/silence-tracker.ts src/core/silence-tracker.test.ts \
+git add src/core/rms.ts src/core/test/rms.test.ts src/core/silence-tracker.ts src/core/test/silence-tracker.test.ts \
         src/offscreen-logic/audio-mixer.ts src/offscreen-logic/audio-monitor.ts entrypoints/
 git commit -m "feat: mix mic with tab audio and alert on sustained silence"
 ```
@@ -1848,7 +1852,7 @@ git commit -m "feat: mix mic with tab audio and alert on sustained silence"
 ### Task 4: Device Tier + Codec Selection + 60-Minute Soak (spec Task 0.4 ⭐)
 
 **Files:**
-- Create: `src/core/device-tier.ts`, `src/core/device-tier.test.ts`
+- Create: `src/core/device-tier.ts`, `src/core/test/device-tier.test.ts`
 - Modify: `src/shared/messages.ts` (remove `tier` from `RECORDING_STARTED`)
 - Modify: `entrypoints/background.ts` (stop sending a hardcoded tier)
 - Modify: `entrypoints/offscreen/main.ts` (self-detect tier via `pickDeviceTier`)
@@ -1859,7 +1863,7 @@ git commit -m "feat: mix mic with tab audio and alert on sustained silence"
 
 - [ ] **Step 1: `pickDeviceTier` — write the failing test**
 
-`src/core/device-tier.test.ts`:
+`src/core/test/device-tier.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -1919,7 +1923,7 @@ export function pickDeviceTier(hints: DeviceHints): TierName {
 Run: `npm test -- device-tier.test.ts` → PASS
 
 ```bash
-git add src/core/device-tier.ts src/core/device-tier.test.ts
+git add src/core/device-tier.ts src/core/test/device-tier.test.ts
 git commit -m "feat: add device-tier selection from hardwareConcurrency/deviceMemory"
 ```
 
@@ -2008,14 +2012,14 @@ Machine: <spec>
 Decision: <keep MID on VP9,VP8 fallback | change MID's codecs to ['vp8'] only>
 ```
 
-If VP9 drops frames or degrades call quality on the low-tier machine, change `CONFIG.TIERS.MID.codecs` in `src/shared/config.ts` from `['vp9', 'vp8']` to `['vp8']` and update `src/shared/config.test.ts`'s corresponding assertion, then re-run `npm test`.
+If VP9 drops frames or degrades call quality on the low-tier machine, change `CONFIG.TIERS.MID.codecs` in `src/shared/config.ts` from `['vp9', 'vp8']` to `['vp8']` and update `src/shared/test/config.test.ts`'s corresponding assertion, then re-run `npm test`.
 
 **Review checklist (spec Task 0.4):** `pickMimeType`'s fallback chain is feature-detected, not hardcoded (R11) · codec choice is tied to `TierName`, never hardcoded elsewhere · bitrate values are explicit in `CONFIG`, no inline magic numbers · tier selection is based on `hardwareConcurrency`/`deviceMemory`, not a fixed default · `pickDeviceTier` is a standalone Strategy-style function, not embedded in `recorder.ts`.
 
 - [ ] **Step 9: Commit findings**
 
 ```bash
-git add docs/task-0.4-codec-findings.md src/shared/config.ts src/shared/config.test.ts
+git add docs/task-0.4-codec-findings.md src/shared/config.ts src/shared/test/config.test.ts
 git commit -m "docs: record VP9 vs VP8 findings and adjust MID tier codec if needed"
 ```
 
@@ -2024,8 +2028,8 @@ git commit -m "docs: record VP9 vs VP8 findings and adjust MID tier codec if nee
 ### Task 5: Tab Guard (spec Task 0.5)
 
 **Files:**
-- Create: `src/core/meeting-code.ts`, `src/core/meeting-code.test.ts`
-- Create: `src/core/tab-guard.ts`, `src/core/tab-guard.test.ts`
+- Create: `src/core/meeting-code.ts`, `src/core/test/meeting-code.test.ts`
+- Create: `src/core/tab-guard.ts`, `src/core/test/tab-guard.test.ts`
 - Modify: `entrypoints/background.ts` (re-validate the guard server-side of the extension, and enable/disable the action icon per tab)
 - Modify: `entrypoints/popup/main.ts` (run the guard on popup open, disable Start + explain when blocked)
 
@@ -2037,11 +2041,11 @@ Phase 0 has no LMS schedule yet, so `scheduledCode` is always `undefined` in the
 
 - [ ] **Step 1: `meeting-code.ts` — write the failing test**
 
-`src/core/meeting-code.test.ts`:
+`src/core/test/meeting-code.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { extractMeetingCode, isMeetUrl } from './meeting-code';
+import { extractMeetingCode, isMeetUrl } from '../meeting-code';
 
 describe('extractMeetingCode', () => {
   it('extracts the code from a plain Meet URL', () => {
@@ -2105,17 +2109,17 @@ export function isMeetUrl(url: string): boolean {
 Run: `npm test -- meeting-code.test.ts` → PASS
 
 ```bash
-git add src/core/meeting-code.ts src/core/meeting-code.test.ts
+git add src/core/meeting-code.ts src/core/test/meeting-code.test.ts
 git commit -m "feat: extract and validate Google Meet meeting codes from a URL"
 ```
 
 - [ ] **Step 5: `tab-guard.ts` — write the failing test**
 
-`src/core/tab-guard.test.ts`:
+`src/core/test/tab-guard.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { evaluateGuard } from './tab-guard';
+import { evaluateGuard } from '../tab-guard';
 
 describe('evaluateGuard', () => {
   it('allows a Meet tab with a valid code when there is no scheduled code to check', () => {
@@ -2177,7 +2181,7 @@ export function evaluateGuard(
 Run: `npm test -- tab-guard.test.ts` → PASS
 
 ```bash
-git add src/core/tab-guard.ts src/core/tab-guard.test.ts
+git add src/core/tab-guard.ts src/core/test/tab-guard.test.ts
 git commit -m "feat: add tab-guard decision logic"
 ```
 
@@ -2280,7 +2284,7 @@ git commit -m "feat: guard recording start to the correct active Meet tab"
 ### Task 6: Tab-Switch Behavior + Stall Detection (spec Task 0.6 ⭐⭐, R13)
 
 **Files:**
-- Create: `src/core/stall-detector.ts`, `src/core/stall-detector.test.ts`
+- Create: `src/core/stall-detector.ts`, `src/core/test/stall-detector.test.ts`
 - Create: `src/offscreen-logic/frame-monitor.ts` (manual-tested — `<video>`/`requestVideoFrameCallback` are browser-only)
 - Modify: `entrypoints/offscreen/main.ts` (wire the frame monitor, report `VIDEO_STALLED`)
 - Modify: `entrypoints/content.ts` (add the `visibilitychange` "you were away" notice)
@@ -2292,7 +2296,7 @@ git commit -m "feat: guard recording start to the correct active Meet tab"
 
 - [ ] **Step 1: `StallDetector` — write the failing test**
 
-`src/core/stall-detector.test.ts`:
+`src/core/test/stall-detector.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -2396,7 +2400,7 @@ export class StallDetector {
 Run: `npm test -- stall-detector.test.ts` → PASS
 
 ```bash
-git add src/core/stall-detector.ts src/core/stall-detector.test.ts
+git add src/core/stall-detector.ts src/core/test/stall-detector.test.ts
 git commit -m "feat: add StallDetector for R13 frame-freeze detection"
 ```
 
@@ -2410,7 +2414,7 @@ import { CONFIG } from '../shared/config';
 
 export function startFrameMonitor(stream: MediaStream, onEvent: (event: StallEvent) => void): () => void {
   const video = document.createElement('video');
-  video.srcObject = new MediaStream([stream.getVideoTracks()[0]]);
+  video.srcObject = new MediaStream([stream.getVideoTracks()[0]!]);
   video.muted = true;
   void video.play();
 
@@ -2523,7 +2527,7 @@ Decision (per spec's table):
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/core/stall-detector.ts src/core/stall-detector.test.ts src/offscreen-logic/frame-monitor.ts \
+git add src/core/stall-detector.ts src/core/test/stall-detector.test.ts src/offscreen-logic/frame-monitor.ts \
         entrypoints/offscreen/main.ts entrypoints/content.ts docs/task-0.6-findings.md
 git commit -m "feat: detect video stalls on tab switch and notify the teacher (R13)"
 ```
