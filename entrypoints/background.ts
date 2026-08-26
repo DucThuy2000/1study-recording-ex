@@ -3,6 +3,7 @@ import { browser, type Browser } from 'wxt/browser';
 import type { ActiveSessionInfo, Message, MessageOf, RecordingStateResponse } from '@/src/shared/messages';
 import { ChromeTabCaptureApi, ChromeOffscreenApi } from '@/src/adapters/chrome-api';
 import { ChromeStorageAdapter } from '@/src/adapters/storage';
+import { CONFIG } from '@/src/shared/config';
 import { createLogger } from '@/src/core/logger';
 import { isMeetUrl, extractMeetingCode } from '@/src/core/meeting-code';
 import { evaluateGuard } from '@/src/core/tab-guard';
@@ -81,13 +82,37 @@ async function refuseStart(reason: MessageOf<'GUARD_RESULT'>['reason'], detail?:
 }
 
 async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void> {
+  // A fresh attempt — however it turns out — supersedes whatever error the
+  // last one left behind. Without this, a stale "microphone denied" from
+  // yesterday keeps masking today's actual (and possibly quite different)
+  // guard message indefinitely, since it's only ever cleared on the success
+  // path further down.
+  await writeLastError(null);
+
   const existing = await readActiveSession();
   if (existing) {
-    // The natural recovery path once the popup can rehydrate: the teacher
-    // reopens it, sees a stuck-looking UI and clicks Start again. Minting a
-    // second session here would orphan the first one's recorder.
-    await refuseStart('ALREADY_RECORDING', `Session ${existing.sessionId} is already recording.`);
-    return;
+    // A STARTING session that never acks (offscreen document killed before
+    // it could send RECORDING_STATE, the ensureDocument()-resolves-before-
+    // listener-registered race, etc.) would otherwise brick the extension:
+    // the popup can't offer Stop for a session with no confirmed recorder,
+    // so nothing could ever clear this entry. Treat it as abandoned once
+    // it's plainly not going to ack, and let a fresh Start reclaim it. A
+    // late ack from the abandoned attempt is harmless — handleRecordingState
+    // only promotes an ack whose sessionId still matches the active session.
+    const isStaleStart =
+      existing.status === 'STARTING' && Date.now() - existing.startedAtMs > CONFIG.STARTING_ACK_TIMEOUT_MS;
+    if (!isStaleStart) {
+      // The natural recovery path once the popup can rehydrate: the teacher
+      // reopens it, sees a stuck-looking UI and clicks Start again. Minting a
+      // second session here would orphan the first one's recorder.
+      await refuseStart('ALREADY_RECORDING', `Session ${existing.sessionId} is already recording.`);
+      return;
+    }
+    logger.warn('clearing a STARTING session that never acked', {
+      sessionId: existing.sessionId,
+      ageMs: Date.now() - existing.startedAtMs,
+    });
+    await writeActiveSession(null);
   }
 
   const tab = await browser.tabs.get(message.tabId);
@@ -103,7 +128,6 @@ async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void>
     // Tentative until the offscreen document acks with RECORDING_STATE, which
     // is why status is STARTING and not RECORDING — the popup renders the
     // difference rather than claiming a recording that may still fail.
-    await writeLastError(null);
     await writeActiveSession({
       sessionId,
       tabId: message.tabId,
