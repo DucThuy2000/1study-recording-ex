@@ -721,6 +721,7 @@ Expected: FAIL — `Cannot find module './event-reporter'`.
 import type { KeyValueStore } from '../adapters/storage';
 import type { EventBus } from './event-bus';
 import type { Logger } from './logger';
+import { CONFIG } from '../shared/config';
 
 export interface RecordingEvent {
   type:
@@ -738,7 +739,6 @@ export interface RecordingEvent {
 }
 
 const PENDING_EVENTS_KEY = 'pendingEvents';
-const MAX_PENDING = 500;
 
 export class EventReporter {
   constructor(
@@ -752,12 +752,14 @@ export class EventReporter {
     this.logger.warn(`event: ${type}`, payload);
     const pending = (await this.store.get<RecordingEvent[]>(PENDING_EVENTS_KEY)) ?? [];
     pending.push(event);
-    if (pending.length > MAX_PENDING) pending.shift();
+    if (pending.length > CONFIG.EVENT_QUEUE_MAX_PENDING) pending.shift();
     await this.store.set(PENDING_EVENTS_KEY, pending);
     this.bus.emit('event', event);
   }
 }
 ```
+
+`PENDING_EVENTS_KEY` stays local — it's a storage key name, not a numeric threshold, so it's outside the "every constant lives in `config.ts`" rule (that rule targets tunable numbers, not identifiers). The queue cap itself (`EVENT_QUEUE_MAX_PENDING`) does have to live in `CONFIG`, which Step 33 (below) hasn't been written yet at this point if you're executing the plan in strict order from scratch — if so, add that one field to `CONFIG` now (see Step 33's code block) before this file will typecheck; if you're picking this fix up on an already-scaffolded repo (as happened here — Task 1's original implementation had this constant local, and a later review caught it), `src/shared/config.ts` already exists and this is a pure relocation.
 
 This is the concrete, working half of R6 available in Phase 0: every abnormal state gets logged, queued durably, and broadcast locally. Phase 3 (Task 3.1+) adds the network client that flushes `pendingEvents` to `POST /api/recordings/event` — nothing here needs to change when that lands, it only needs a consumer.
 
@@ -832,6 +834,7 @@ export const CONFIG = {
   MEMORY_BUFFER_MAX_BYTES: 200 * 1024 ** 2,
   AUDIO_BITRATE: 64_000,
   STALL_GAP_MS: 3000,
+  EVENT_QUEUE_MAX_PENDING: 500,
   TIERS: {
     LOW: { width: 854, height: 480, fps: 12, bitrate: 600_000, codecs: ['vp8'] },
     MID: { width: 1280, height: 720, fps: 15, bitrate: 1_200_000, codecs: ['vp9', 'vp8'] },
@@ -849,7 +852,7 @@ export function pickMimeType(codecs: readonly string[]): string {
 }
 ```
 
-`STALL_GAP_MS` and `SILENCE_CHECK_INTERVAL_SECONDS` are used starting Task 3/Task 6, but per spec 4.5 every constant belongs in this single file from the start, not introduced piecemeal.
+`STALL_GAP_MS` and `SILENCE_CHECK_INTERVAL_SECONDS` are used starting Task 3/Task 6, and `EVENT_QUEUE_MAX_PENDING` is used by `EventReporter` above, but per spec 4.5 every constant belongs in this single file from the start, not introduced piecemeal.
 
 - [ ] **Step 34: Run it, confirm it passes, commit**
 
