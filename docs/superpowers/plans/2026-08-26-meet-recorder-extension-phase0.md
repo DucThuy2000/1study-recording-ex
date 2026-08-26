@@ -835,6 +835,12 @@ export const CONFIG = {
   AUDIO_BITRATE: 64_000,
   STALL_GAP_MS: 3000,
   EVENT_QUEUE_MAX_PENDING: 500,
+  DEVICE_TIER_THRESHOLDS: {
+    lowMaxCores: 4,
+    lowMaxMemoryGb: 4,
+    highMinCores: 8,
+    highMinMemoryGb: 8,
+  },
   TIERS: {
     LOW: { width: 854, height: 480, fps: 12, bitrate: 600_000, codecs: ['vp8'] },
     MID: { width: 1280, height: 720, fps: 15, bitrate: 1_200_000, codecs: ['vp9', 'vp8'] },
@@ -852,7 +858,7 @@ export function pickMimeType(codecs: readonly string[]): string {
 }
 ```
 
-`STALL_GAP_MS` and `SILENCE_CHECK_INTERVAL_SECONDS` are used starting Task 3/Task 6, and `EVENT_QUEUE_MAX_PENDING` is used by `EventReporter` above, but per spec 4.5 every constant belongs in this single file from the start, not introduced piecemeal.
+`STALL_GAP_MS` and `SILENCE_CHECK_INTERVAL_SECONDS` are used starting Task 3/Task 6, `EVENT_QUEUE_MAX_PENDING` is used by `EventReporter` above, and `DEVICE_TIER_THRESHOLDS` is used by `pickDeviceTier` in Task 4, but per spec 4.5 every constant belongs in this single file from the start, not introduced piecemeal.
 
 - [ ] **Step 34: Run it, confirm it passes, commit**
 
@@ -1932,7 +1938,7 @@ Expected: FAIL — `Cannot find module './device-tier'`.
 `src/core/device-tier.ts`:
 
 ```ts
-import type { TierName } from '../shared/config';
+import { CONFIG, type TierName } from '../shared/config';
 
 export interface DeviceHints {
   hardwareConcurrency: number;
@@ -1941,14 +1947,15 @@ export interface DeviceHints {
 
 export function pickDeviceTier(hints: DeviceHints): TierName {
   const { hardwareConcurrency, deviceMemoryGb } = hints;
+  const { lowMaxCores, lowMaxMemoryGb, highMinCores, highMinMemoryGb } = CONFIG.DEVICE_TIER_THRESHOLDS;
   // A confirmed low-memory reading is always LOW, even before defaulting.
-  if (hardwareConcurrency <= 4 || (deviceMemoryGb !== undefined && deviceMemoryGb <= 4)) {
+  if (hardwareConcurrency <= lowMaxCores || (deviceMemoryGb !== undefined && deviceMemoryGb <= lowMaxMemoryGb)) {
     return 'LOW';
   }
   // navigator.deviceMemory is unsupported in some browsers; treat "unknown" as
-  // the 4GB midpoint so a missing reading can't be mistaken for a HIGH-tier device.
-  const memory = deviceMemoryGb ?? 4;
-  if (hardwareConcurrency >= 8 && memory >= 8) return 'HIGH';
+  // the low/mid boundary so a missing reading can't be mistaken for a HIGH-tier device.
+  const memory = deviceMemoryGb ?? lowMaxMemoryGb;
+  if (hardwareConcurrency >= highMinCores && memory >= highMinMemoryGb) return 'HIGH';
   return 'MID';
 }
 ```
