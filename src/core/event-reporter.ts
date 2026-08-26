@@ -13,7 +13,8 @@ export interface RecordingEvent {
     | 'UPLOAD_STALLED'
     | 'QUALITY_DEGRADED'
     | 'LAYOUT_WRONG'
-    | 'VIDEO_STALLED';
+    | 'VIDEO_STALLED'
+    | 'VIDEO_RECOVERED';
   payload: Record<string, unknown>;
   ts: number;
 }
@@ -21,13 +22,32 @@ export interface RecordingEvent {
 const PENDING_EVENTS_KEY = 'pendingEvents';
 
 export class EventReporter {
+  /**
+   * Serializes the queue's read-modify-write. Three independent producers can
+   * report in the same tick (the mic monitor and the tab monitor share a poll
+   * interval, and the frame monitor runs on its own), and two interleaved
+   * `get` → `push` → `set` cycles would silently drop one event — precisely the
+   * simultaneous-total-audio-failure case that most needs recording (R6).
+   */
+  private tail: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly store: KeyValueStore,
     private readonly bus: EventBus<{ event: RecordingEvent }>,
     private readonly logger: Logger,
   ) {}
 
-  async report(type: RecordingEvent['type'], payload: Record<string, unknown>): Promise<void> {
+  report(type: RecordingEvent['type'], payload: Record<string, unknown>): Promise<void> {
+    const next = this.tail.then(() => this.doReport(type, payload));
+    // Keep a rejected report from poisoning every later one.
+    this.tail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  private async doReport(type: RecordingEvent['type'], payload: Record<string, unknown>): Promise<void> {
     const event: RecordingEvent = { type, payload, ts: Date.now() };
     this.logger.warn(`event: ${type}`, payload);
     const pending = (await this.store.get<RecordingEvent[]>(PENDING_EVENTS_KEY)) ?? [];
