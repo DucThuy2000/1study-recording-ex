@@ -14,6 +14,7 @@
 
 - **File naming:** never name a file after the single function/export it holds (e.g. `assert-never.ts` for `assertNever`) — name it after the concept/domain it covers (`assert.ts`, `rms.ts`, `tab-guard.ts`). Files that already do this throughout the plan need no change; this only affected `assert.ts` in Task 1.
 - **Test file location:** every test file lives in a `test/` subfolder of the directory it tests, not colocated next to its source file — `src/core/foo.ts` is tested by `src/core/test/foo.test.ts`, `src/adapters/bar.ts` by `src/adapters/test/bar.test.ts`. Every task below already reflects this; a test file one level deeper than its source needs one extra `../` in its relative imports (two extra `../` for an import that already climbed a directory, e.g. `src/core/test/x.test.ts` importing `src/adapters/y.ts` is `../../adapters/y`, not `../adapters/y`).
+- **`defineBackground`/`defineContentScript` need explicit imports here.** WXT normally injects these as ambient globals, but this project's `wxt.config.ts` sets `imports: false` (to keep every dependency an explicit `import`, per the no-implicit-globals rule below) — and that also disables the ambient-global injection for WXT's own entrypoint helpers, not just the auto-import convention it was meant to turn off. Every `entrypoints/background.ts` listing imports `{ defineBackground } from 'wxt/utils/define-background'`; every `entrypoints/content.ts` listing imports `{ defineContentScript } from 'wxt/utils/define-content-script'`. Confirmed by a real `npm run build` + `tsc --noEmit` after a clean `.wxt`/`.output` regeneration.
 - **`noUncheckedIndexedAccess` and `verbatimModuleSyntax` are on** (inherited from WXT's generated `.wxt/tsconfig.json`, confirmed by running `tsc --noEmit` against Task 1's actual output). Concretely: `arr[i]` and `arr?.[i]` are typed `T | undefined` — chain another `?.` before touching a property, or non-null-assert with `!` when you can prove by construction that the element exists (e.g. `stream.getVideoTracks()[0]!` right after requesting a stream with a video track). And: a symbol imported only for a type position must use `import type { X }` (or `import { type X, ... }`) — every code block in this plan already does this correctly; keep doing it in anything you write beyond what's shown.
 
 - TypeScript `strict: true`; no `any` (use `unknown` + type guards). [spec 4.5]
@@ -896,6 +897,7 @@ git commit -m "feat: declare the cross-context Message contract"
 `entrypoints/background.ts`:
 
 ```ts
+import { defineBackground } from 'wxt/utils/define-background';
 import { createLogger } from '@/src/core/logger';
 
 const logger = createLogger('background');
@@ -908,6 +910,7 @@ export default defineBackground(() => {
 `entrypoints/content.ts`:
 
 ```ts
+import { defineContentScript } from 'wxt/utils/define-content-script';
 import { createLogger } from '@/src/core/logger';
 
 const logger = createLogger('content');
@@ -1282,6 +1285,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
 `entrypoints/background.ts`:
 
 ```ts
+import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
 import type { Message } from '@/src/shared/messages';
 import { ChromeTabCaptureApi, ChromeOffscreenApi } from '@/src/adapters/chrome-api';
@@ -1772,6 +1776,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
 `entrypoints/content.ts` — add a non-blocking banner that reacts to `AUDIO_ALERT`:
 
 ```ts
+import { defineContentScript } from 'wxt/utils/define-content-script';
 import { browser } from 'wxt/browser';
 import { createLogger } from '@/src/core/logger';
 import type { Message } from '@/src/shared/messages';
