@@ -1755,7 +1755,9 @@ browser.runtime.onMessage.addListener((message: Message) => {
       activeRecorder.start();
 
       micMonitor = new AudioLevelMonitor(ctx, micSource, (event) => {
-        void eventReporter.report('MIC_SILENT', { sessionId: message.sessionId });
+        if (event === 'ALERT') {
+          void eventReporter.report('MIC_SILENT', { sessionId: message.sessionId });
+        }
         void browser.runtime.sendMessage({
           type: 'AUDIO_ALERT',
           source: 'mic',
@@ -1763,7 +1765,9 @@ browser.runtime.onMessage.addListener((message: Message) => {
         } satisfies Message);
       });
       tabMonitor = new AudioLevelMonitor(ctx, tabSource, (event) => {
-        void eventReporter.report('TAB_AUDIO_SILENT', { sessionId: message.sessionId });
+        if (event === 'ALERT') {
+          void eventReporter.report('TAB_AUDIO_SILENT', { sessionId: message.sessionId });
+        }
         void browser.runtime.sendMessage({
           type: 'AUDIO_ALERT',
           source: 'tab',
