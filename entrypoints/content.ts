@@ -41,5 +41,25 @@ export default defineContentScript({
         }
       }
     });
+
+    // R13/R12: informational-only notice — tab backgrounding may freeze the
+    // captured video (still unconfirmed empirically, see docs/task-0.6-findings.md);
+    // this never blocks anything, it just tells the teacher which window of
+    // time might be missing. A plain event listener, not a setInterval, so it
+    // isn't subject to backgrounded-tab timer throttling (R13).
+    let hiddenAtMs: number | undefined;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        hiddenAtMs = Date.now();
+        return;
+      }
+      if (hiddenAtMs === undefined) return;
+      const awayMinutes = Math.round((Date.now() - hiddenAtMs) / 60000);
+      hiddenAtMs = undefined;
+      if (awayMinutes >= 1) {
+        showBanner(`Bạn đã rời tab lớp học ${awayMinutes} phút — đoạn đó có thể không được ghi hình.`);
+      }
+    });
   },
 });

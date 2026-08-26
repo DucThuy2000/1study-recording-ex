@@ -3,6 +3,7 @@ import type { Message } from '@/src/shared/messages';
 import { SessionRecorder } from '@/src/offscreen-logic/recorder';
 import { mixTabAndMic } from '@/src/offscreen-logic/audio-mixer';
 import { AudioLevelMonitor } from '@/src/offscreen-logic/audio-monitor';
+import { startFrameMonitor } from '@/src/offscreen-logic/frame-monitor';
 import { EventReporter } from '@/src/core/event-reporter';
 import { EventBus } from '@/src/core/event-bus';
 import { SessionStateMachine } from '@/src/core/state-machine';
@@ -20,6 +21,7 @@ let activeSessionId: string | undefined;
 let activeStateMachine: SessionStateMachine | undefined;
 let micMonitor: AudioLevelMonitor | undefined;
 let tabMonitor: AudioLevelMonitor | undefined;
+let stopFrameMonitor: (() => void) | undefined;
 
 async function openTabStream(streamId: string): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
@@ -55,6 +57,18 @@ browser.runtime.onMessage.addListener((message: Message) => {
       activeRecorder = new SessionRecorder(message.sessionId, mixedStream, tier);
       activeRecorder.start();
 
+      stopFrameMonitor = startFrameMonitor(mixedStream, (event) => {
+        if (event.type === 'STALLED') {
+          void eventReporter.report('VIDEO_STALLED', { sessionId: message.sessionId, gapMs: event.gapMs });
+          void browser.runtime.sendMessage({
+            type: 'VIDEO_STALLED',
+            sessionId: message.sessionId,
+            gapMs: event.gapMs,
+            atMs: event.atMs,
+          } satisfies Message);
+        }
+      });
+
       micMonitor = new AudioLevelMonitor(ctx, micSource, (event) => {
         if (event === 'ALERT') {
           void eventReporter.report('MIC_SILENT', { sessionId: message.sessionId });
@@ -85,6 +99,8 @@ browser.runtime.onMessage.addListener((message: Message) => {
     void (async () => {
       micMonitor?.stop();
       tabMonitor?.stop();
+      stopFrameMonitor?.();
+      stopFrameMonitor = undefined;
       const blob = await activeRecorder!.stop();
       triggerDownload(blob, message.sessionId);
       await activeStateMachine?.transition('FINALIZING', 'stop requested');
