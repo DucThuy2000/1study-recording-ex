@@ -1,3 +1,4 @@
+import { defineContentScript } from 'wxt/utils/define-content-script';
 import { createLogger } from '@/src/core/logger';
 
 const logger = createLogger('content');
