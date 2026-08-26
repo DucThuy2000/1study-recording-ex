@@ -1165,6 +1165,7 @@ const logger = createLogger('recorder');
 export class SessionRecorder {
   private mediaRecorder: MediaRecorder | undefined;
   private readonly writer: ChunkWriter;
+  private readonly pendingWrites: Promise<void>[] = [];
 
   constructor(
     private readonly sessionId: string,
@@ -1184,9 +1185,13 @@ export class SessionRecorder {
     });
     this.mediaRecorder.ondataavailable = (event) => {
       if (event.data.size === 0) return;
-      void this.writer.write(event.data).catch((error) => {
-        logger.error('chunk write failed', { error: String(error) });
-      });
+      const write = this.writer.write(event.data).then(
+        () => undefined,
+        (error: unknown) => {
+          logger.error('chunk write failed', { error: String(error) });
+        },
+      );
+      this.pendingWrites.push(write);
     };
     this.mediaRecorder.start(CONFIG.CHUNK_MS);
     logger.info('recording started', { sessionId: this.sessionId, mimeType, tier: this.tier });
@@ -1199,12 +1204,17 @@ export class SessionRecorder {
       recorder.onstop = () => resolve();
       recorder.stop();
     });
+    // MediaRecorder queues its final `dataavailable` and `onstop` as separate tasks —
+    // nothing guarantees the last chunk's OPFS write (several real await hops) finishes
+    // before onstop resolves. Wait for every write this session issued before reading
+    // the files back, or readAll() can race a chunk that hasn't landed yet.
+    await Promise.all(this.pendingWrites);
     return this.writer.readAll();
   }
 }
 ```
 
-The `ondataavailable` handler never appends to an array — each blob is handed to `ChunkWriter.write()` and the local reference is dropped as soon as the handler returns (R1).
+The `ondataavailable` handler never appends to an array — each blob is handed to `ChunkWriter.write()` and the local reference is dropped as soon as the handler returns (R1). Its write promise is tracked in `pendingWrites` (not awaited inline, so `ondataavailable` still returns immediately) purely so `stop()` can wait for every outstanding write before reconstructing the file — this is not a chunk buffer and never holds chunk data, only promises.
 
 - [ ] **Step 7: Create the offscreen entrypoint**
 
