@@ -3,8 +3,9 @@ import { CONFIG } from '../shared/config';
 
 /**
  * Watches a media stream's video track for frame stalls (R13). Runs a hidden
- * <video> element to receive `requestVideoFrameCallback` ticks, plus a 1s
- * `setInterval` (safe here because this runs inside the offscreen document,
+ * <video> element to receive `requestVideoFrameCallback` ticks, plus a
+ * `CONFIG.FRAME_MONITOR_POLL_MS` `setInterval` (safe here because this runs
+ * inside the offscreen document,
  * which Chrome does not throttle the way it throttles backgrounded tabs) to
  * catch a stall that's already in progress even if no frame ever arrives to
  * trigger `onFrame`.
@@ -27,7 +28,7 @@ export function startFrameMonitor(stream: MediaStream, onEvent: (event: StallEve
   const intervalId = setInterval(() => {
     const event = detector.checkForStall();
     if (event) onEvent(event);
-  }, 1000);
+  }, CONFIG.FRAME_MONITOR_POLL_MS);
 
   return () => {
     clearInterval(intervalId);

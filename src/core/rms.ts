@@ -1,3 +1,5 @@
+import { CONFIG } from '../shared/config';
+
 export function computeRms(samples: Float32Array): number {
   if (samples.length === 0) return 0;
   let sumSquares = 0;
@@ -7,8 +9,6 @@ export function computeRms(samples: Float32Array): number {
   return Math.sqrt(sumSquares / samples.length);
 }
 
-export const SILENCE_RMS_THRESHOLD = 0.01;
-
 export function isSilent(rms: number): boolean {
-  return rms < SILENCE_RMS_THRESHOLD;
+  return rms < CONFIG.SILENCE_RMS_THRESHOLD;
 }

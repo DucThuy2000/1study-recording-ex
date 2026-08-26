@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { computeRms, isSilent, SILENCE_RMS_THRESHOLD } from '../rms';
+import { computeRms, isSilent } from '../rms';
+import { CONFIG } from '../../shared/config';
+
+const SILENCE_RMS_THRESHOLD = CONFIG.SILENCE_RMS_THRESHOLD;
 
 describe('computeRms', () => {
   it('is zero for silence', () => {
