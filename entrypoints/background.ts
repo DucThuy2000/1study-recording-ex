@@ -186,12 +186,20 @@ async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void>
 
   const micState = await checkMicPermissionState();
   if (micState === 'denied') {
+    // Deliberately does NOT close the offscreen document (unlike the other
+    // early-refusal path in stopRecording): closing it here forces the *next*
+    // Start click to recreate one from scratch, which raced the still-known,
+    // still-unsolved "ensureDocument() resolves before the new document's
+    // onMessage listener has registered" issue on every single retry —
+    // in practice, the permission check would silently read back as
+    // "not granted" no matter what the teacher had actually chosen. Leaving
+    // an idle offscreen document open between recordings costs nothing (no
+    // media stream is held merely to check permission state) and matches
+    // the official Chrome sample's own behavior.
     await refuseStartAndPersist(
       'MIC_PERMISSION_DENIED',
       'Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.',
     );
-    // No session was ever minted, so this document has nothing to do.
-    await offscreen.closeDocument();
     return;
   }
   if (micState !== 'granted') {
@@ -203,7 +211,6 @@ async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void>
       'MIC_PERMISSION_NEEDED',
       'Grant microphone access in the tab that just opened, then click Start again.',
     );
-    await offscreen.closeDocument();
     return;
   }
 
