@@ -56,6 +56,11 @@ export interface RecordingStateResponse {
   activeForSenderTab: boolean;
 }
 
+/** Reply to `STORAGE_GET`, sent by background via `sendResponse`. */
+export interface StorageGetResponse {
+  value: unknown;
+}
+
 /**
  * Every cross-context message. Routing model: the popup and the offscreen
  * document only ever talk to background; background is the sole router and the
@@ -77,6 +82,12 @@ export type Message =
   | { type: 'RECORDING_STARTED'; sessionId: string; streamId: string }
   | { type: 'RECORDING_STOP'; sessionId: string }
   | { type: 'GET_MIC_PERMISSION_STATE' }
+  // offscreen → background: offscreen can use only chrome.runtime (confirmed
+  // against Chrome's own offscreen-document reference — chrome.storage, like
+  // every other extension API, simply doesn't exist there), so anything the
+  // offscreen document needs to persist goes through background instead.
+  | { type: 'STORAGE_GET'; key: string }
+  | { type: 'STORAGE_SET'; key: string; value: unknown }
   // offscreen → background (the popup receives the same broadcast and renders it)
   | { type: 'RECORDING_STATE'; sessionId: string; state: SessionState; elapsedMs: number; error?: string }
   | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }

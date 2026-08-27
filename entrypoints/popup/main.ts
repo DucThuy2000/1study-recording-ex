@@ -170,6 +170,8 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case 'RECORDING_STARTED':
     case 'RECORDING_STOP':
     case 'GET_MIC_PERMISSION_STATE':
+    case 'STORAGE_GET':
+    case 'STORAGE_SET':
     case 'AUDIO_ALERT':
     case 'VIDEO_STALLED':
     case 'VIDEO_RECOVERED':

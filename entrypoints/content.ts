@@ -82,6 +82,8 @@ export default defineContentScript({
         case 'RECORDING_STARTED':
         case 'RECORDING_STOP':
         case 'GET_MIC_PERMISSION_STATE':
+        case 'STORAGE_GET':
+        case 'STORAGE_SET':
         case 'RECORDING_STATE':
         case 'GUARD_RESULT':
           return;

@@ -8,8 +8,7 @@ import { startFrameMonitor } from '@/src/offscreen-logic/frame-monitor';
 import { EventReporter } from '@/src/core/event-reporter';
 import { EventBus } from '@/src/core/event-bus';
 import { SessionStateMachine, type SessionState } from '@/src/core/state-machine';
-import { ChromeStorageAdapter } from '@/src/adapters/storage';
-import { ChromeOffscreenApi } from '@/src/adapters/chrome-api';
+import { MessagingStorageAdapter } from '@/src/adapters/messaging-storage';
 import { createLogger } from '@/src/core/logger';
 import { pickDeviceTier } from '@/src/core/device-tier';
 import { assertNever } from '@/src/core/assert';
@@ -18,8 +17,12 @@ import type { RecordingEvent } from '@/src/core/event-reporter';
 
 const logger = createLogger('offscreen');
 const bus = new EventBus<{ event: RecordingEvent }>();
-const eventReporter = new EventReporter(new ChromeStorageAdapter(), bus, logger);
-const offscreenApi = new ChromeOffscreenApi();
+// The offscreen document can use only chrome.runtime — chrome.storage does
+// not exist here at all (Chrome's own docs: "The runtime API is the only
+// extensions API supported by offscreen documents") — so persistence is
+// proxied through background via MessagingStorageAdapter, never a direct
+// ChromeStorageAdapter.
+const eventReporter = new EventReporter(new MessagingStorageAdapter(), bus, logger);
 
 // Per-session handles for the in-flight recording. These are transient wiring
 // state, not business logic — every decision lives in an injected, unit-tested
@@ -153,7 +156,7 @@ async function startRecording(message: MessageOf<'RECORDING_STARTED'>): Promise<
     activeMix = await mixTabAndMic(activeTabStream);
     const { mixedStream, ctx, tabSource, micSource } = activeMix;
 
-    activeStateMachine = new SessionStateMachine(sessionId, new ChromeStorageAdapter(), logger);
+    activeStateMachine = new SessionStateMachine(sessionId, new MessagingStorageAdapter(), logger);
     logTransition(await activeStateMachine.transition('READY', 'preflight ok'));
     logTransition(await activeStateMachine.transition('RECORDING', 'start'));
 
@@ -218,8 +221,11 @@ async function stopRecording(message: MessageOf<'RECORDING_STOP'>): Promise<void
     logger.warn('ignoring stop for an unknown session', { sessionId, activeSessionId });
     // Nothing is running here, so this document is dead weight (a start that
     // failed, or a stop replayed after a service-worker restart). Close it
-    // rather than leaving an idle offscreen document behind.
-    if (activeSessionId === undefined) await offscreenApi.closeDocument();
+    // rather than leaving an idle offscreen document behind. window.close(),
+    // not chrome.offscreen.closeDocument() — the offscreen document can only
+    // use chrome.runtime, so that call would throw the same way chrome.storage
+    // did; self-closing is exactly what window.close() is documented for.
+    if (activeSessionId === undefined) window.close();
     return;
   }
 
@@ -250,8 +256,9 @@ async function stopRecording(message: MessageOf<'RECORDING_STOP'>): Promise<void
   } finally {
     releaseSessionHandles();
     // Non-negotiable: the document — and with it the live microphone and the
-    // tab capture — has to close even if anything above threw.
-    await offscreenApi.closeDocument();
+    // tab capture — has to close even if anything above threw. window.close(),
+    // not the chrome.offscreen adapter (see the other close site above).
+    window.close();
   }
 }
 
@@ -279,6 +286,10 @@ browser.runtime.onMessage.addListener((message: Message, _sender, sendResponse: 
     case 'START_RECORDING':
     case 'STOP_RECORDING':
     case 'GET_RECORDING_STATE':
+    // This document emits STORAGE_GET/STORAGE_SET (via MessagingStorageAdapter)
+    // rather than consuming them — background answers them.
+    case 'STORAGE_GET':
+    case 'STORAGE_SET':
     case 'RECORDING_STATE':
     case 'AUDIO_ALERT':
     case 'VIDEO_STALLED':
