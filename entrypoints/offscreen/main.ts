@@ -210,9 +210,7 @@ async function startRecording(
     logTransition(await activeStateMachine.transition("RECORDING", "start"));
 
     activeRecorder = new SessionRecorder(sessionId, mixedStream, tier, {
-      onChunkWritten: (_index, bytes) => {
-        void sessionLedger.recordChunk(sessionId, bytes);
-      },
+      onChunkWritten: (_index, bytes) => sessionLedger.recordChunk(sessionId, bytes),
     });
     activeRecorder.start();
 

@@ -11,7 +11,7 @@ export interface RecordingResult {
 }
 
 export interface SessionRecorderCallbacks {
-  onChunkWritten?: (index: number, bytes: number) => void;
+  onChunkWritten?: (index: number, bytes: number) => void | Promise<void>;
 }
 
 export class SessionRecorder {
@@ -40,8 +40,8 @@ export class SessionRecorder {
       if (event.data.size === 0) return;
       const bytes = event.data.size;
       const write = this.writer.write(event.data).then(
-        (index) => {
-          this.callbacks.onChunkWritten?.(index, bytes);
+        async (index) => {
+          await this.callbacks.onChunkWritten?.(index, bytes);
         },
         (error: unknown) => {
           logger.error("chunk write failed", { error: String(error) });
