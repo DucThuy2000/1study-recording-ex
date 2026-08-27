@@ -365,6 +365,21 @@ async function fanOutToRecordedTab(message: Message): Promise<void> {
   await sendToTab(active.tabId, message);
 }
 
+/**
+ * Every Meet tab reports its own mute button, recording or not — only the
+ * tab actually being recorded should ever reach the offscreen document's
+ * mic gain node, or a teacher muting themselves on an unrelated Meet tab in
+ * another window would silence the real recording.
+ */
+async function handleMicMuteChanged(
+  message: MessageOf<"MIC_MUTE_CHANGED">,
+  senderTabId: number | undefined,
+): Promise<void> {
+  const active = await readActiveSession();
+  if (!active || active.tabId !== senderTabId) return;
+  await broadcast({ type: "SET_MIC_MUTED", muted: message.muted } satisfies Message);
+}
+
 async function buildStateResponse(
   senderTabId: number | undefined,
 ): Promise<RecordingStateResponse> {
@@ -444,10 +459,14 @@ export default defineBackground(() => {
         case "VIDEO_RECOVERED":
           run(fanOutToRecordedTab(message), "alert fan-out");
           return false;
+        case "MIC_MUTE_CHANGED":
+          run(handleMicMuteChanged(message, sender.tab?.id), "mic mute changed");
+          return false;
         // Messages this worker emits rather than consumes.
         case "RECORDING_STARTED":
         case "RECORDING_STOP":
         case "GET_MIC_PERMISSION_STATE":
+        case "SET_MIC_MUTED":
         case "RECORDING_ACTIVE":
         case "GUARD_RESULT":
           return false;

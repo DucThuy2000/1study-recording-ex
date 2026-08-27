@@ -3,6 +3,16 @@ export interface MixResult {
   ctx: AudioContext;
   tabSource: MediaStreamAudioSourceNode;
   micSource: MediaStreamAudioSourceNode;
+  /**
+   * Exposed so the caller can silence the mic's contribution to the *mix*
+   * when the teacher mutes in Meet — Meet's mute button only stops Meet's own
+   * WebRTC pipeline from transmitting, it has no effect on this extension's
+   * independent getUserMedia() capture, so without this the recording keeps
+   * the teacher's voice even while Meet shows them as muted. Gain, not the
+   * MediaStreamTrack's `enabled` flag: instant, reversible, doesn't touch the
+   * track other things here already depend on staying live.
+   */
+  micGain: GainNode;
 }
 
 /**
@@ -66,5 +76,5 @@ export async function mixTabAndMic(tabStream: MediaStream): Promise<MixResult> {
 
   const mixedStream = new MediaStream([tabStream.getVideoTracks()[0]!, dest.stream.getAudioTracks()[0]!]);
 
-  return { mixedStream, ctx, tabSource, micSource };
+  return { mixedStream, ctx, tabSource, micSource, micGain };
 }

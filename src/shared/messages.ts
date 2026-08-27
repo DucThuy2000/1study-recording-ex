@@ -78,10 +78,22 @@ export type Message =
   | { type: 'START_RECORDING'; tabId: number }
   | { type: 'STOP_RECORDING'; sessionId: string }
   | { type: 'GET_RECORDING_STATE' }
+  // content script → background: Meet's own mute button, detected via a
+  // MutationObserver on its `data-is-muted` attribute (fails soft — if Meet
+  // ever changes this markup, the button is just never found and recording
+  // continues exactly as it does today, without mute detection).
+  | { type: 'MIC_MUTE_CHANGED'; muted: boolean }
   // background → offscreen (commands)
   | { type: 'RECORDING_STARTED'; sessionId: string; streamId: string }
   | { type: 'RECORDING_STOP'; sessionId: string }
   | { type: 'GET_MIC_PERMISSION_STATE' }
+  // Meet's mute button only stops Meet's own WebRTC pipeline from
+  // transmitting — it has no effect on this extension's independent
+  // getUserMedia() mic capture, so the recording would otherwise keep the
+  // teacher's voice through a mute the recording (and Meet's own UI) both
+  // show as off. Relayed from MIC_MUTE_CHANGED, restricted to the tab
+  // actually being recorded.
+  | { type: 'SET_MIC_MUTED'; muted: boolean }
   // offscreen → background: offscreen can use only chrome.runtime (confirmed
   // against Chrome's own offscreen-document reference — chrome.storage, like
   // every other extension API, simply doesn't exist there), so anything the
