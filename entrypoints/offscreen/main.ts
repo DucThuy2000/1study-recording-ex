@@ -24,6 +24,7 @@ import { pickDeviceTier } from "@/src/core/device-tier";
 import { assertNever } from "@/src/core/assert";
 import { isErr, type Result } from "@/src/core/result";
 import type { RecordingEvent } from "@/src/core/event-reporter";
+import { SessionLedger } from "@/src/core/session-ledger";
 
 const logger = createLogger("offscreen");
 const bus = new EventBus<{ event: RecordingEvent }>();
@@ -37,6 +38,7 @@ const eventReporter = new EventReporter(
   bus,
   logger,
 );
+const sessionLedger = new SessionLedger(new MessagingStorageAdapter());
 
 // Per-session handles for the in-flight recording. These are transient wiring
 // state, not business logic — every decision lives in an injected, unit-tested
@@ -207,7 +209,11 @@ async function startRecording(
     logTransition(await activeStateMachine.transition("READY", "preflight ok"));
     logTransition(await activeStateMachine.transition("RECORDING", "start"));
 
-    activeRecorder = new SessionRecorder(sessionId, mixedStream, tier);
+    activeRecorder = new SessionRecorder(sessionId, mixedStream, tier, {
+      onChunkWritten: (_index, bytes) => {
+        void sessionLedger.recordChunk(sessionId, bytes);
+      },
+    });
     activeRecorder.start();
 
     stopFrameMonitor = startFrameMonitor(mixedStream, (event) => {

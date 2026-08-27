@@ -10,6 +10,10 @@ export interface RecordingResult {
   missingChunkIndices: number[];
 }
 
+export interface SessionRecorderCallbacks {
+  onChunkWritten?: (index: number, bytes: number) => void;
+}
+
 export class SessionRecorder {
   private mediaRecorder: MediaRecorder | undefined;
   private readonly writer: ChunkWriter;
@@ -19,6 +23,7 @@ export class SessionRecorder {
     private readonly sessionId: string,
     private readonly stream: MediaStream,
     private readonly tier: TierName,
+    private readonly callbacks: SessionRecorderCallbacks = {},
   ) {
     this.writer = new ChunkWriter(sessionId);
   }
@@ -33,8 +38,11 @@ export class SessionRecorder {
     });
     this.mediaRecorder.ondataavailable = (event) => {
       if (event.data.size === 0) return;
+      const bytes = event.data.size;
       const write = this.writer.write(event.data).then(
-        () => undefined,
+        (index) => {
+          this.callbacks.onChunkWritten?.(index, bytes);
+        },
         (error: unknown) => {
           logger.error("chunk write failed", { error: String(error) });
         },

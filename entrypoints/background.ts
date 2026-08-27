@@ -18,11 +18,13 @@ import { createLogger } from "@/src/core/logger";
 import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
 import { evaluateGuard } from "@/src/core/tab-guard";
 import { assertNever } from "@/src/core/assert";
+import { SessionLedger } from "@/src/core/session-ledger";
 
 const logger = createLogger("background");
 const tabCapture = new ChromeTabCaptureApi();
 const offscreen = new ChromeOffscreenApi();
 const store = new ChromeStorageAdapter();
+const sessionLedger = new SessionLedger(store);
 
 /**
  * Active-session ownership lives here and nowhere else, persisted rather than
@@ -195,6 +197,7 @@ async function handleStart(
     const isStaleStart =
       existing.status === "STARTING" &&
       Date.now() - existing.startedAtMs > CONFIG.STARTING_ACK_TIMEOUT_MS;
+
     if (!isStaleStart) {
       // The natural recovery path once the popup can rehydrate: the teacher
       // reopens it, sees a stuck-looking UI and clicks Start again. Minting a
@@ -265,6 +268,12 @@ async function handleStart(
       status: "STARTING",
       startedAtMs: Date.now(),
     });
+    await sessionLedger.start({
+      sessionId,
+      meetingCode: extractMeetingCode(tab.url ?? "")!,
+      tabId: message.tabId,
+      startedAtMs: Date.now(),
+    });
     // Already exists from the permission check above; ensureDocument() is a
     // no-op when one does, so this stays correct even if that check is ever
     // skipped or reordered.
@@ -278,6 +287,7 @@ async function handleStart(
   } catch (error) {
     const detail = describeError(error);
     await writeActiveSession(null);
+    await sessionLedger.setStatus(sessionId, "FAILED");
     await writeLastError(detail);
     logger.error("start failed", { sessionId, error: detail });
     await refuseStart("START_FAILED", detail);
@@ -338,6 +348,7 @@ async function handleRecordingState(
       sessionId: message.sessionId,
       error: detail,
     });
+    await sessionLedger.setStatus(message.sessionId, "FAILED");
     await writeLastError(detail);
     if (active?.sessionId === message.sessionId) {
       await writeActiveSession(null);
@@ -348,6 +359,10 @@ async function handleRecordingState(
       });
     }
     return;
+  }
+
+  if (message.state === "FINALIZING" || message.state === "DONE") {
+    await sessionLedger.setStatus(message.sessionId, message.state);
   }
 
   // FINALIZING and the rest are informational; ownership was already released
