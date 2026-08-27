@@ -207,7 +207,7 @@ async function startRecording(message: MessageOf<'RECORDING_STARTED'>): Promise<
  * the grant was actually obtained (the permission page, `entrypoints/permission/`).
  */
 async function getMicPermissionState(): Promise<MicPermissionStateResponse> {
-  const { state } = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+  const { state } = await navigator.permissions.query({ name: 'microphone' });
   return { state };
 }
 

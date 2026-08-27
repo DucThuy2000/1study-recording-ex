@@ -111,6 +111,38 @@ async function checkMicPermissionState(): Promise<MicPermissionStateResponse['st
   }
 }
 
+/**
+ * Refuses the start AND persists the reason, unlike a guard refusal (which
+ * the popup can always recompute live from the tab it's looking at). Nothing
+ * but this round-trip knows the mic permission state, and opening the tab
+ * below is itself liable to kill the popup before it ever renders the
+ * `GUARD_RESULT` broadcast — the same focus-loss problem that ruled out
+ * priming from the popup in the first place, just one step removed. Without
+ * persisting it, the one attempt where this guidance matters most (the very
+ * first click, before anything is granted) is the one most likely to lose it.
+ */
+async function refuseStartAndPersist(reason: MessageOf<'GUARD_RESULT'>['reason'], detail: string): Promise<void> {
+  await writeLastError(detail);
+  await refuseStart(reason, detail);
+}
+
+/**
+ * Brings an already-open permission tab to the front instead of piling up a
+ * new one on every repeated Start click — plausible here specifically,
+ * since a teacher whose popup just vanished (see refuseStartAndPersist) has
+ * no visible feedback and no obvious reason not to click Start again.
+ */
+async function openPermissionTab(): Promise<void> {
+  const url = browser.runtime.getURL('/permission.html');
+  const [existing] = await browser.tabs.query({ url });
+  if (existing?.id !== undefined) {
+    await browser.tabs.update(existing.id, { active: true });
+    if (existing.windowId !== undefined) await browser.windows.update(existing.windowId, { focused: true });
+    return;
+  }
+  await browser.tabs.create({ url });
+}
+
 async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void> {
   // A fresh attempt — however it turns out — supersedes whatever error the
   // last one left behind. Without this, a stale "microphone denied" from
@@ -154,21 +186,24 @@ async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void>
 
   const micState = await checkMicPermissionState();
   if (micState === 'denied') {
-    await refuseStart(
+    await refuseStartAndPersist(
       'MIC_PERMISSION_DENIED',
       'Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.',
     );
+    // No session was ever minted, so this document has nothing to do.
+    await offscreen.closeDocument();
     return;
   }
   if (micState !== 'granted') {
     // Chrome has never asked. A tab — unlike the popup — isn't destroyed by
     // losing focus, so it can actually hold the permission prompt open long
     // enough for the teacher to answer it.
-    await browser.tabs.create({ url: browser.runtime.getURL('/permission.html') });
-    await refuseStart(
+    await openPermissionTab();
+    await refuseStartAndPersist(
       'MIC_PERMISSION_NEEDED',
       'Grant microphone access in the tab that just opened, then click Start again.',
     );
+    await offscreen.closeDocument();
     return;
   }
 
