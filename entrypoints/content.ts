@@ -35,41 +35,38 @@ function hideBanner(): void {
 const MUTE_BUTTON_SELECTOR = "button[data-is-muted]";
 
 /**
- * Watches Meet's mute button and calls `onChange` with its current state
- * immediately once found, then again on every toggle. A single attribute
- * MutationObserver once attached — not a poll, so this carries no R13 risk
- * even though it runs in the content script rather than the offscreen
- * document (R13 is specifically about *timers*, not event-driven observers).
+ * Watches Meet's mute button and calls `onChange` whenever its muted state
+ * changes (immediately once found, then again on every real toggle).
+ *
+ * Re-queries the button fresh on every observed mutation rather than holding
+ * onto one element reference — confirmed by testing against a live Meet call
+ * that clicking the button logged the state exactly once and then nothing on
+ * every later click, which is the signature of the button being a *new* DOM
+ * node each time (an SPA re-render swapping the element) rather than the same
+ * node's attribute changing in place. Watching document.body for `childList`
+ * (node swapped) and `attributes`/`data-is-muted` (attribute changed in
+ * place) together covers both, without needing to know which one Meet
+ * actually does.
  */
 function watchMicMuteButton(onChange: (muted: boolean) => void): void {
-  function attach(button: Element): void {
-    const readAndReport = () => onChange(button.getAttribute("data-is-muted") === "true");
-    readAndReport();
-    new MutationObserver(readAndReport).observe(button, {
-      attributes: true,
-      attributeFilter: ["data-is-muted"],
-    });
-  }
+  let lastMuted: boolean | undefined;
 
-  const existing = document.querySelector(MUTE_BUTTON_SELECTOR);
-  if (existing) {
-    attach(existing);
-    return;
-  }
-
-  // Meet renders its controls asynchronously after the content script loads —
-  // wait for the button to appear rather than polling for it. MutationObserver
-  // only fires on *future* mutations, so the synchronous check above still
-  // matters: without it, a button that already exists when this runs is never
-  // noticed until some unrelated DOM change happens to trigger a re-check.
-  const bodyObserver = new MutationObserver(() => {
+  function checkAndReport(): void {
     const button = document.querySelector(MUTE_BUTTON_SELECTOR);
-    if (button) {
-      bodyObserver.disconnect();
-      attach(button);
-    }
+    if (!button) return;
+    const muted = button.getAttribute("data-is-muted") === "true";
+    if (muted === lastMuted) return;
+    lastMuted = muted;
+    onChange(muted);
+  }
+
+  checkAndReport();
+  new MutationObserver(checkAndReport).observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-is-muted"],
   });
-  bodyObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 export default defineContentScript({
@@ -85,6 +82,7 @@ export default defineContentScript({
     let lastKnownMicMuted = false;
 
     watchMicMuteButton((muted) => {
+      logger.info(`muted mic: ${muted}`);
       lastKnownMicMuted = muted;
       void browser.runtime.sendMessage({
         type: "MIC_MUTE_CHANGED",
