@@ -3,15 +3,6 @@ export interface MixResult {
   ctx: AudioContext;
   tabSource: MediaStreamAudioSourceNode;
   micSource: MediaStreamAudioSourceNode;
-  /**
-   * Exposed so the caller can silence the mic's contribution to the *mix*
-   * when the teacher mutes in Meet — Meet's mute button only stops Meet's own
-   * WebRTC pipeline from transmitting, it has no effect on this extension's
-   * independent getUserMedia() capture, so without this the recording keeps
-   * the teacher's voice even while Meet shows them as muted. Gain, not the
-   * MediaStreamTrack's `enabled` flag: instant, reversible, doesn't touch the
-   * track other things here already depend on staying live.
-   */
   micGain: GainNode;
 }
 
@@ -24,18 +15,18 @@ export interface MixResult {
 export class MicrophoneAccessError extends Error {
   constructor(override readonly cause: unknown) {
     super(MicrophoneAccessError.describe(cause));
-    this.name = 'MicrophoneAccessError';
+    this.name = "MicrophoneAccessError";
   }
 
   private static describe(cause: unknown): string {
-    const name = cause instanceof Error ? cause.name : '';
+    const name = cause instanceof Error ? cause.name : "";
     switch (name) {
-      case 'NotAllowedError':
-        return 'Microphone access was denied. Open the extension popup and allow the microphone, then start again.';
-      case 'NotFoundError':
-        return 'No microphone was found. Plug in a headset or microphone, then start again.';
-      case 'NotReadableError':
-        return 'The microphone is in use by another application. Close it, then start again.';
+      case "NotAllowedError":
+        return "Microphone access was denied. Open the extension popup and allow the microphone, then start again.";
+      case "NotFoundError":
+        return "No microphone was found. Plug in a headset or microphone, then start again.";
+      case "NotReadableError":
+        return "The microphone is in use by another application. Close it, then start again.";
       default:
         return `Could not open the microphone: ${cause instanceof Error ? cause.message : String(cause)}`;
     }
@@ -74,7 +65,10 @@ export async function mixTabAndMic(tabStream: MediaStream): Promise<MixResult> {
   micSource.connect(micGain).connect(dest);
   tabSource.connect(ctx.destination); // required so the teacher still hears students (R4/R5)
 
-  const mixedStream = new MediaStream([tabStream.getVideoTracks()[0]!, dest.stream.getAudioTracks()[0]!]);
+  const mixedStream = new MediaStream([
+    tabStream.getVideoTracks()[0]!,
+    dest.stream.getAudioTracks()[0]!,
+  ]);
 
   return { mixedStream, ctx, tabSource, micSource, micGain };
 }

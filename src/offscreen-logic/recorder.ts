@@ -1,8 +1,8 @@
-import { pickMimeType, CONFIG, type TierName } from '../shared/config';
-import { ChunkWriter } from './chunk-writer';
-import { createLogger } from '../core/logger';
+import { pickMimeType, CONFIG, type TierName } from "../shared/config";
+import { ChunkWriter } from "./chunk-writer";
+import { createLogger } from "../core/logger";
 
-const logger = createLogger('recorder');
+const logger = createLogger("recorder");
 
 export interface RecordingResult {
   blob: Blob;
@@ -36,18 +36,22 @@ export class SessionRecorder {
       const write = this.writer.write(event.data).then(
         () => undefined,
         (error: unknown) => {
-          logger.error('chunk write failed', { error: String(error) });
+          logger.error("chunk write failed", { error: String(error) });
         },
       );
       this.pendingWrites.push(write);
     };
     this.mediaRecorder.start(CONFIG.CHUNK_MS);
-    logger.info('recording started', { sessionId: this.sessionId, mimeType, tier: this.tier });
+    logger.info("recording started", {
+      sessionId: this.sessionId,
+      mimeType,
+      tier: this.tier,
+    });
   }
 
   async stop(): Promise<RecordingResult> {
     const recorder = this.mediaRecorder;
-    if (!recorder) throw new Error('recorder not started');
+    if (!recorder) throw new Error("recorder not started");
     await new Promise<void>((resolve) => {
       recorder.onstop = () => resolve();
       recorder.stop();
@@ -59,7 +63,7 @@ export class SessionRecorder {
     await Promise.all(this.pendingWrites);
     const { blob, missingIndices } = await this.writer.readAll();
     if (missingIndices.length > 0) {
-      logger.error('chunks missing from the finished recording', {
+      logger.error("chunks missing from the finished recording", {
         sessionId: this.sessionId,
         missingChunkIndices: missingIndices,
       });

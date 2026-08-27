@@ -377,7 +377,10 @@ async function handleMicMuteChanged(
 ): Promise<void> {
   const active = await readActiveSession();
   if (!active || active.tabId !== senderTabId) return;
-  await broadcast({ type: "SET_MIC_MUTED", muted: message.muted } satisfies Message);
+  await broadcast({
+    type: "SET_MIC_MUTED",
+    muted: message.muted,
+  } satisfies Message);
 }
 
 async function buildStateResponse(
@@ -460,7 +463,10 @@ export default defineBackground(() => {
           run(fanOutToRecordedTab(message), "alert fan-out");
           return false;
         case "MIC_MUTE_CHANGED":
-          run(handleMicMuteChanged(message, sender.tab?.id), "mic mute changed");
+          run(
+            handleMicMuteChanged(message, sender.tab?.id),
+            "mic mute changed",
+          );
           return false;
         // Messages this worker emits rather than consumes.
         case "RECORDING_STARTED":

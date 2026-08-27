@@ -50,9 +50,6 @@ let activeMix: MixResult | undefined;
 let micMonitor: AudioLevelMonitor | undefined;
 let tabMonitor: AudioLevelMonitor | undefined;
 let stopFrameMonitor: (() => void) | undefined;
-// Meet's own mute button only stops Meet's WebRTC pipeline from transmitting
-// — it has no effect on this document's independent mic capture. Mirrors
-// content.ts's detection of that button; see SET_MIC_MUTED in messages.ts.
 let micMuted = false;
 
 function describeError(error: unknown): string {
@@ -149,13 +146,11 @@ function releaseSessionHandles(): void {
   activeTabStream?.getTracks().forEach((track) => track.stop());
   const ctx = activeMix?.ctx;
   if (ctx) {
-    void ctx
-      .close()
-      .catch((error: unknown) =>
-        logger.debug("AudioContext already closed", {
-          error: describeError(error),
-        }),
-      );
+    void ctx.close().catch((error: unknown) =>
+      logger.debug("AudioContext already closed", {
+        error: describeError(error),
+      }),
+    );
   }
   micMonitor = undefined;
   tabMonitor = undefined;
@@ -167,20 +162,6 @@ function releaseSessionHandles(): void {
   activeSessionId = undefined;
   activeStartedAtMs = undefined;
   micMuted = false;
-}
-
-/**
- * Silences (or restores) the mic's contribution to the recorded mix via its
- * gain node — instant, reversible, doesn't touch the underlying track. Also
- * gates the mic-silence monitor's *output*: a teacher who deliberately muted
- * is not a "check your mic" situation, and without this a long intentional
- * mute would false-alarm exactly like an unplugged mic (R6 is about real
- * problems, not crying wolf on a state the teacher chose on purpose).
- */
-function setMicMuted(muted: boolean): void {
-  micMuted = muted;
-  if (activeMix) activeMix.micGain.gain.value = muted ? 0 : 1;
-  logger.info("mic mute synced from Meet's own button", { muted });
 }
 
 async function startRecording(
@@ -353,7 +334,9 @@ async function stopRecording(
     if (missingChunkIndices.length > 0) {
       await reportEvent("OPFS_ERROR", { sessionId, missingChunkIndices });
     }
+
     triggerDownload(blob, sessionId);
+
     logger.info("offscreen recording stopped, file downloaded", {
       sessionId,
       elapsedMs,
@@ -407,7 +390,10 @@ browser.runtime.onMessage.addListener(
         );
         return true;
       case "SET_MIC_MUTED":
-        setMicMuted(message.muted);
+        const muted = message.muted;
+        micMuted = muted;
+        if (activeMix) activeMix.micGain.gain.value = muted ? 0 : 1;
+        logger.info("Muted mic: ", { muted });
         return false;
       // Addressed to background, the popup or a content script. Named explicitly
       // rather than omitted so the switch stays exhaustive: a new message type is

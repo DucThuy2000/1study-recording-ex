@@ -34,10 +34,6 @@ function hideBanner(): void {
 // continues exactly as it does today, just without mute detection.
 const MUTE_BUTTON_SELECTOR = "button[data-is-muted]";
 
-function readMicMuted(button: Element): boolean {
-  return button.getAttribute("data-is-muted") === "true";
-}
-
 /**
  * Watches Meet's mute button and calls `onChange` with its current state
  * immediately once found, then again on every toggle. A single attribute
@@ -47,8 +43,9 @@ function readMicMuted(button: Element): boolean {
  */
 function watchMicMuteButton(onChange: (muted: boolean) => void): void {
   function attach(button: Element): void {
-    onChange(readMicMuted(button));
-    new MutationObserver(() => onChange(readMicMuted(button))).observe(button, {
+    const readAndReport = () => onChange(button.getAttribute("data-is-muted") === "true");
+    readAndReport();
+    new MutationObserver(readAndReport).observe(button, {
       attributes: true,
       attributeFilter: ["data-is-muted"],
     });
@@ -61,7 +58,10 @@ function watchMicMuteButton(onChange: (muted: boolean) => void): void {
   }
 
   // Meet renders its controls asynchronously after the content script loads —
-  // wait for the button to appear rather than polling for it.
+  // wait for the button to appear rather than polling for it. MutationObserver
+  // only fires on *future* mutations, so the synchronous check above still
+  // matters: without it, a button that already exists when this runs is never
+  // noticed until some unrelated DOM change happens to trigger a re-check.
   const bodyObserver = new MutationObserver(() => {
     const button = document.querySelector(MUTE_BUTTON_SELECTOR);
     if (button) {
@@ -86,7 +86,10 @@ export default defineContentScript({
 
     watchMicMuteButton((muted) => {
       lastKnownMicMuted = muted;
-      void browser.runtime.sendMessage({ type: "MIC_MUTE_CHANGED", muted } satisfies Message);
+      void browser.runtime.sendMessage({
+        type: "MIC_MUTE_CHANGED",
+        muted,
+      } satisfies Message);
     });
 
     void (async () => {
