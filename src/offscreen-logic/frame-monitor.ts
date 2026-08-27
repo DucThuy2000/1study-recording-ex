@@ -17,21 +17,29 @@ export function startFrameMonitor(stream: MediaStream, onEvent: (event: StallEve
   void video.play();
 
   const detector = new StallDetector(CONFIG.STALL_GAP_MS, () => Date.now());
+  let intervalId: ReturnType<typeof setInterval> | undefined;
 
   const onFrameCallback = () => {
     const event = detector.onFrame();
     if (event) onEvent(event);
+    if (intervalId === undefined) {
+      // Deliberately not started until the *first* real frame has arrived.
+      // Decoding the very first frame of a fresh tabCapture MediaStream has
+      // its own warm-up latency (observed: a few seconds), and the detector's
+      // clock starts ticking at construction time, before any frame exists —
+      // starting this check immediately reads that warm-up gap as a stall
+      // that never actually happened, every single time.
+      intervalId = setInterval(() => {
+        const stallEvent = detector.checkForStall();
+        if (stallEvent) onEvent(stallEvent);
+      }, CONFIG.FRAME_MONITOR_POLL_MS);
+    }
     video.requestVideoFrameCallback(onFrameCallback);
   };
   video.requestVideoFrameCallback(onFrameCallback);
 
-  const intervalId = setInterval(() => {
-    const event = detector.checkForStall();
-    if (event) onEvent(event);
-  }, CONFIG.FRAME_MONITOR_POLL_MS);
-
   return () => {
-    clearInterval(intervalId);
+    if (intervalId !== undefined) clearInterval(intervalId);
     video.pause();
     video.srcObject = null;
   };

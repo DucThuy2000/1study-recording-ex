@@ -427,7 +427,9 @@ export default defineBackground(() => {
           run(
             store
               .get(message.key)
-              .then((value) => sendResponse({ value } satisfies StorageGetResponse)),
+              .then((value) =>
+                sendResponse({ value } satisfies StorageGetResponse),
+              ),
             "storage get",
           );
           return true;
