@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import type { Message, MessageOf } from '@/src/shared/messages';
+import type { Message, MessageOf, MicPermissionStateResponse } from '@/src/shared/messages';
 import { CONFIG, type TierName } from '@/src/shared/config';
 import { SessionRecorder } from '@/src/offscreen-logic/recorder';
 import { mixTabAndMic, type MixResult } from '@/src/offscreen-logic/audio-mixer';
@@ -201,6 +201,16 @@ async function startRecording(message: MessageOf<'RECORDING_STARTED'>): Promise<
   }
 }
 
+/**
+ * `navigator.permissions.query` reflects the extension origin's grant, so it
+ * doesn't matter that this runs in the offscreen document rather than wherever
+ * the grant was actually obtained (the permission page, `entrypoints/permission/`).
+ */
+async function getMicPermissionState(): Promise<MicPermissionStateResponse> {
+  const { state } = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+  return { state };
+}
+
 async function stopRecording(message: MessageOf<'RECORDING_STOP'>): Promise<void> {
   const { sessionId } = message;
   const recorder = activeRecorder;
@@ -245,17 +255,24 @@ async function stopRecording(message: MessageOf<'RECORDING_STOP'>): Promise<void
   }
 }
 
-browser.runtime.onMessage.addListener((message: Message) => {
+browser.runtime.onMessage.addListener((message: Message, _sender, sendResponse: (response?: unknown) => void) => {
   switch (message.type) {
     case 'RECORDING_STARTED':
       run(startRecording(message), 'start recording');
-      return;
+      return false;
     case 'RECORDING_STOP':
       // The only path into the stop sequence. The popup's own STOP_RECORDING is
       // deliberately a different type tag, so its broadcast — which this
       // document also receives — can never race this relay (C2).
       run(stopRecording(message), 'stop recording');
-      return;
+      return false;
+    case 'GET_MIC_PERMISSION_STATE':
+      // Async response, so the channel has to be held open with `return true`.
+      run(
+        getMicPermissionState().then((response) => sendResponse(response)),
+        'mic permission query',
+      );
+      return true;
     // Addressed to background, the popup or a content script. Named explicitly
     // rather than omitted so the switch stays exhaustive: a new message type is
     // then a compile error here instead of a silent drop.
@@ -268,7 +285,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case 'VIDEO_RECOVERED':
     case 'RECORDING_ACTIVE':
     case 'GUARD_RESULT':
-      return;
+      return false;
     default:
       return assertNever(message);
   }

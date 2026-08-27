@@ -1,6 +1,12 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser, type Browser } from 'wxt/browser';
-import type { ActiveSessionInfo, Message, MessageOf, RecordingStateResponse } from '@/src/shared/messages';
+import type {
+  ActiveSessionInfo,
+  Message,
+  MessageOf,
+  MicPermissionStateResponse,
+  RecordingStateResponse,
+} from '@/src/shared/messages';
 import { ChromeTabCaptureApi, ChromeOffscreenApi } from '@/src/adapters/chrome-api';
 import { ChromeStorageAdapter } from '@/src/adapters/storage';
 import { CONFIG } from '@/src/shared/config';
@@ -81,6 +87,30 @@ async function refuseStart(reason: MessageOf<'GUARD_RESULT'>['reason'], detail?:
   await broadcast({ type: 'GUARD_RESULT', allowed: false, reason, detail });
 }
 
+/**
+ * `getUserMedia` in the offscreen document can never show a permission
+ * prompt — it has no visible surface. So this is checked up front, from a
+ * document that can actually answer (the offscreen document itself; its
+ * origin's grant is shared with every extension page), rather than letting
+ * a denied or never-asked mic fail the whole recording silently (R4/R6).
+ */
+async function checkMicPermissionState(): Promise<MicPermissionStateResponse['state']> {
+  try {
+    await offscreen.ensureDocument(
+      '/offscreen.html',
+      ['USER_MEDIA'],
+      'Recording the class session tab for teaching quality review.',
+    );
+    const response = await browser.runtime.sendMessage<Message, MicPermissionStateResponse | undefined>({
+      type: 'GET_MIC_PERMISSION_STATE',
+    });
+    return response?.state ?? 'prompt';
+  } catch (error) {
+    logger.warn('could not check microphone permission state', { error: describeError(error) });
+    return 'prompt';
+  }
+}
+
 async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void> {
   // A fresh attempt — however it turns out — supersedes whatever error the
   // last one left behind. Without this, a stale "microphone denied" from
@@ -122,6 +152,26 @@ async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void>
     return;
   }
 
+  const micState = await checkMicPermissionState();
+  if (micState === 'denied') {
+    await refuseStart(
+      'MIC_PERMISSION_DENIED',
+      'Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.',
+    );
+    return;
+  }
+  if (micState !== 'granted') {
+    // Chrome has never asked. A tab — unlike the popup — isn't destroyed by
+    // losing focus, so it can actually hold the permission prompt open long
+    // enough for the teacher to answer it.
+    await browser.tabs.create({ url: browser.runtime.getURL('/permission.html') });
+    await refuseStart(
+      'MIC_PERMISSION_NEEDED',
+      'Grant microphone access in the tab that just opened, then click Start again.',
+    );
+    return;
+  }
+
   const sessionId = makeSessionId();
   try {
     const streamId = await tabCapture.getMediaStreamId(message.tabId);
@@ -134,6 +184,9 @@ async function handleStart(message: MessageOf<'START_RECORDING'>): Promise<void>
       status: 'STARTING',
       startedAtMs: Date.now(),
     });
+    // Already exists from the permission check above; ensureDocument() is a
+    // no-op when one does, so this stays correct even if that check is ever
+    // skipped or reordered.
     await offscreen.ensureDocument(
       '/offscreen.html',
       ['USER_MEDIA'],
@@ -259,6 +312,7 @@ export default defineBackground(() => {
         // Messages this worker emits rather than consumes.
         case 'RECORDING_STARTED':
         case 'RECORDING_STOP':
+        case 'GET_MIC_PERMISSION_STATE':
         case 'RECORDING_ACTIVE':
         case 'GUARD_RESULT':
           return false;

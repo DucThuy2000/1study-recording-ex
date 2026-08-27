@@ -2,14 +2,31 @@ import type { SessionState } from '../core/state-machine';
 
 /**
  * Why a start request was refused. The first two mirror `GuardResult`'s reasons
- * (`src/core/tab-guard.ts`); the last two are refusals only the background
- * service worker can decide, because only it owns active-session state.
+ * (`src/core/tab-guard.ts`); the rest are refusals only the background service
+ * worker can decide, because only it owns active-session state and only it can
+ * ask the offscreen document for microphone permission state.
  */
 export type GuardFailureReason =
   | 'NOT_MEET_TAB'
   | 'MEETING_CODE_MISMATCH'
   | 'ALREADY_RECORDING'
-  | 'START_FAILED';
+  | 'START_FAILED'
+  | 'MIC_PERMISSION_DENIED'
+  | 'MIC_PERMISSION_NEEDED';
+
+/**
+ * `getUserMedia` in the offscreen document can never show a permission prompt
+ * (no visible surface) — this is checked before every start so background can
+ * route around it instead of failing the recording silently. `'prompt'` means
+ * Chrome has never asked, `'denied'` means the teacher (or a prior attempt)
+ * already said no.
+ */
+export type MicPermissionState = 'granted' | 'denied' | 'prompt';
+
+/** Reply to `GET_MIC_PERMISSION_STATE`, sent by the offscreen document via `sendResponse`. */
+export interface MicPermissionStateResponse {
+  state: MicPermissionState;
+}
 
 /**
  * `STARTING` = background has dispatched the start command but the offscreen
@@ -59,6 +76,7 @@ export type Message =
   // background → offscreen (commands)
   | { type: 'RECORDING_STARTED'; sessionId: string; streamId: string }
   | { type: 'RECORDING_STOP'; sessionId: string }
+  | { type: 'GET_MIC_PERMISSION_STATE' }
   // offscreen → background (the popup receives the same broadcast and renders it)
   | { type: 'RECORDING_STATE'; sessionId: string; state: SessionState; elapsedMs: number; error?: string }
   | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }

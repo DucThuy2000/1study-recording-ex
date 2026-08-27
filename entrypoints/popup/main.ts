@@ -27,7 +27,6 @@ let view: PopupView = { kind: 'IDLE' };
 let guardAllowed = false;
 let guardMessage = 'Checking this tab…';
 let notice: string | null = null;
-let micPrimed = false;
 
 function render(): void {
   switch (view.kind) {
@@ -91,21 +90,6 @@ async function applyGuard(): Promise<void> {
       : `This tab's meeting code doesn't match the scheduled class (${guard.actualCode}). Confirm before recording.`;
 }
 
-/**
- * The offscreen document has no visible surface and so can never show the
- * microphone prompt itself. The popup can, so it asks once per open — before
- * the teacher ever clicks Start — and immediately releases the stream. A
- * denied grant still surfaces later as a real start failure (R4/R6).
- */
-function primeMicrophonePermission(): void {
-  if (micPrimed) return;
-  micPrimed = true;
-  navigator.mediaDevices
-    .getUserMedia({ audio: true })
-    .then((stream) => stream.getTracks().forEach((track) => track.stop()))
-    .catch((error: unknown) => logger.warn('microphone not available yet', { error: String(error) }));
-}
-
 function guardFailureText(message: Extract<Message, { type: 'GUARD_RESULT' }>): string {
   switch (message.reason) {
     case 'ALREADY_RECORDING':
@@ -116,6 +100,10 @@ function guardFailureText(message: Extract<Message, { type: 'GUARD_RESULT' }>): 
       return "This tab's meeting code doesn't match the scheduled class.";
     case 'START_FAILED':
       return `Could not start recording: ${message.detail ?? 'unknown error'}`;
+    case 'MIC_PERMISSION_NEEDED':
+      return 'Grant microphone access in the tab that just opened, then click Start again.';
+    case 'MIC_PERMISSION_DENIED':
+      return 'Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.';
     case undefined:
       return 'Could not start recording.';
     default:
@@ -181,6 +169,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case 'GET_RECORDING_STATE':
     case 'RECORDING_STARTED':
     case 'RECORDING_STOP':
+    case 'GET_MIC_PERMISSION_STATE':
     case 'AUDIO_ALERT':
     case 'VIDEO_STALLED':
     case 'VIDEO_RECOVERED':
@@ -195,6 +184,5 @@ void (async () => {
   render();
   await rehydrate();
   await applyGuard();
-  primeMicrophonePermission();
   render();
 })();
