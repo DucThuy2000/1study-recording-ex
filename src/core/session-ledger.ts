@@ -21,9 +21,13 @@ function entryKey(sessionId: string): string {
 /**
  * Durable registry of every recording session's local footprint, independent
  * of ActiveSessionInfo (background's single-slot "what's recording right
- * now"). Task 2's disk-backlog math sums over this, and Task 4's
- * crash-recovery scan enumerates it on startup — both need every session
- * with local chunks still on disk, not just the current one.
+ * now"). Task 2's disk-backlog math sums over this — every session with
+ * local chunks still on disk, not just the current one. Also designed to
+ * support a future crash-recovery reconciliation pass (enumerate sessions
+ * left mid-flight after a browser restart, compare against real OPFS
+ * contents) — that pass was implemented once and then deliberately reverted
+ * pending a redesign; see git history around 2026-08-28 for the prior
+ * attempt (`src/core/crash-recovery.ts`, `src/adapters/opfs.ts`, removed).
  *
  * One storage key per session plus a separate index array, not one big
  * `sessions: {...}` object (see this plan's Global Constraints) — this
@@ -34,9 +38,13 @@ function entryKey(sessionId: string): string {
  * and background's setStatus()/setChunkCount() on that one session's key —
  * that cross-process read-modify-write race is real and was explicitly
  * accepted rather than fixed (a `recordChunk()` racing a `setStatus()` can
- * revert a status change or undercount by one chunk's bytes). It self-heals
- * on the next full browser restart, when crash-recovery re-derives the
- * truth from actual OPFS files rather than trusting the ledger's counters.
+ * revert a status change or undercount by one chunk's bytes). It was
+ * expected to self-heal on the next full browser restart via a
+ * crash-recovery reconciliation pass — with that pass currently reverted
+ * (see above), nothing corrects this drift right now. Low practical
+ * severity (worst case: one chunk's bytes/status stays stale until the
+ * ledger entry is next touched), but worth remembering when crash-recovery
+ * comes back.
  *
  * recordChunk() itself is called once per ~5s chunk from a single producer
  * (MediaRecorder's ondataavailable, strictly sequential by construction) —
@@ -90,7 +98,7 @@ export class SessionLedger {
     await this.store.set<SessionLedgerEntry>(entryKey(sessionId), { ...entry, status });
   }
 
-  /** Task 4 uses this to overwrite the ledger's count with what's actually on disk after a crash. */
+  /** Currently unused (was called by the now-reverted crash-recovery pass to overwrite the ledger's count with what's actually on disk after a crash). Kept for when that pass is reimplemented. */
   async setChunkCount(sessionId: string, totalChunks: number, bytesTotal: number): Promise<void> {
     const entry = await this.get(sessionId);
     if (!entry) return;

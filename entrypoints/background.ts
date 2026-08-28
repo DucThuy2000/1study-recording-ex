@@ -24,8 +24,6 @@ import {
   sumBacklogBytes,
   formatBytes,
 } from "@/src/core/storage-guard";
-import { RealOpfsInspector } from "@/src/adapters/opfs";
-import { reconcileSession, sessionsNeedingReconciliation } from "@/src/core/crash-recovery";
 import { EventReporter } from "@/src/core/event-reporter";
 import { EventBus } from "@/src/core/event-bus";
 import type { RecordingEvent } from "@/src/core/event-reporter";
@@ -35,17 +33,20 @@ const tabCapture = new ChromeTabCaptureApi();
 const offscreen = new ChromeOffscreenApi();
 const store = new ChromeStorageAdapter();
 const sessionLedger = new SessionLedger(store);
-const opfsInspector = new RealOpfsInspector();
 // A second EventReporter instance, separate from offscreen's own — both
 // read-modify-write the same "pendingEvents" storage key, and each only
 // serializes its own writes (see EventReporter's own doc comment). Safe
-// today only because every call site of this instance — reconcileAfterRestart
-// (onStartup) and handleStart's preflight storage-guard refusal — runs
-// exclusively when no session is actively recording, i.e. no offscreen
-// document is alive running the periodic storage check that would otherwise
-// write to the same key concurrently. If this instance is ever used while a
-// session is actively recording, that invariant breaks.
-const backgroundEventReporter = new EventReporter(store, new EventBus<{ event: RecordingEvent }>(), logger);
+// today only because this instance's one call site — handleStart's
+// preflight storage-guard refusal — runs exclusively when no session is
+// actively recording, i.e. no offscreen document is alive running the
+// periodic storage check that would otherwise write to the same key
+// concurrently. If this instance is ever used while a session is actively
+// recording, that invariant breaks.
+const backgroundEventReporter = new EventReporter(
+  store,
+  new EventBus<{ event: RecordingEvent }>(),
+  logger,
+);
 
 /**
  * Active-session ownership lives here and nowhere else, persisted rather than
@@ -198,31 +199,15 @@ async function openPermissionTab(): Promise<void> {
 async function handleStart(
   message: MessageOf<"START_RECORDING">,
 ): Promise<void> {
-  // A fresh attempt — however it turns out — supersedes whatever error the
-  // last one left behind. Without this, a stale "microphone denied" from
-  // yesterday keeps masking today's actual (and possibly quite different)
-  // guard message indefinitely, since it's only ever cleared on the success
-  // path further down.
   await writeLastError(null);
 
   const existing = await readActiveSession();
   if (existing) {
-    // A STARTING session that never acks (offscreen document killed before
-    // it could send RECORDING_STATE, the ensureDocument()-resolves-before-
-    // listener-registered race, etc.) would otherwise brick the extension:
-    // the popup can't offer Stop for a session with no confirmed recorder,
-    // so nothing could ever clear this entry. Treat it as abandoned once
-    // it's plainly not going to ack, and let a fresh Start reclaim it. A
-    // late ack from the abandoned attempt is harmless — handleRecordingState
-    // only promotes an ack whose sessionId still matches the active session.
     const isStaleStart =
       existing.status === "STARTING" &&
       Date.now() - existing.startedAtMs > CONFIG.STARTING_ACK_TIMEOUT_MS;
 
     if (!isStaleStart) {
-      // The natural recovery path once the popup can rehydrate: the teacher
-      // reopens it, sees a stuck-looking UI and clicks Start again. Minting a
-      // second session here would orphan the first one's recorder.
       await refuseStart(
         "ALREADY_RECORDING",
         `Session ${existing.sessionId} is already recording.`,
@@ -247,6 +232,7 @@ async function handleStart(
     return;
   }
 
+  // Prevent client's device run out of disk spaces
   const { quota, usage } = await navigator.storage.estimate();
   const freeBytes = (quota ?? 0) - (usage ?? 0);
   const backlogBytes = sumBacklogBytes(await sessionLedger.list());
@@ -269,16 +255,6 @@ async function handleStart(
 
   const micState = await checkMicPermissionState();
   if (micState === "denied") {
-    // Deliberately does NOT close the offscreen document (unlike the other
-    // early-refusal path in stopRecording): closing it here forces the *next*
-    // Start click to recreate one from scratch, which raced the still-known,
-    // still-unsolved "ensureDocument() resolves before the new document's
-    // onMessage listener has registered" issue on every single retry —
-    // in practice, the permission check would silently read back as
-    // "not granted" no matter what the teacher had actually chosen. Leaving
-    // an idle offscreen document open between recordings costs nothing (no
-    // media stream is held merely to check permission state) and matches
-    // the official Chrome sample's own behavior.
     await refuseStartAndPersist(
       "MIC_PERMISSION_DENIED",
       "Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.",
@@ -286,9 +262,6 @@ async function handleStart(
     return;
   }
   if (micState !== "granted") {
-    // Chrome has never asked. A tab — unlike the popup — isn't destroyed by
-    // losing focus, so it can actually hold the permission prompt open long
-    // enough for the teacher to answer it.
     await openPermissionTab();
     await refuseStartAndPersist(
       "MIC_PERMISSION_NEEDED",
@@ -300,9 +273,6 @@ async function handleStart(
   const sessionId = makeSessionId();
   try {
     const streamId = await tabCapture.getMediaStreamId(message.tabId);
-    // Tentative until the offscreen document acks with RECORDING_STATE, which
-    // is why status is STARTING and not RECORDING — the popup renders the
-    // difference rather than claiming a recording that may still fail.
     await writeActiveSession({
       sessionId,
       tabId: message.tabId,
@@ -463,58 +433,8 @@ function run(task: Promise<void>, label: string): void {
   );
 }
 
-/**
- * `chrome.runtime.onStartup` fires only on a full browser relaunch, never on
- * an extension reload — the one signal that Chrome (not just the service
- * worker) died mid-session. Any session the ledger still shows RECORDING was
- * never cleanly closed out, so its counters may be behind (or ahead of)
- * whatever actually made it to OPFS; reconcile against disk before anything
- * else can touch that session again.
- */
-async function reconcileAfterRestart(): Promise<void> {
-  const stale = sessionsNeedingReconciliation(await sessionLedger.list());
-  for (const entry of stale) {
-    const sizes = await opfsInspector.listChunkSizes(entry.sessionId);
-    if (sizes === null) {
-      logger.warn("could not inspect OPFS for reconciliation this restart, will retry next time", {
-        sessionId: entry.sessionId,
-      });
-      continue;
-    }
-    const actualSizes = sizes.filter((s) => s > 0);
-    const action = reconcileSession(entry, actualSizes);
-    if (action.integrityMismatch) {
-      await sessionLedger.setChunkCount(
-        entry.sessionId,
-        action.correctedTotalChunks!,
-        action.correctedBytesTotal!,
-      );
-      await backgroundEventReporter.report("OPFS_ERROR", {
-        sessionId: entry.sessionId,
-        reason: "ledger_mismatch_after_restart",
-        ledgerChunks: entry.totalChunks,
-        actualChunks: action.correctedTotalChunks,
-      });
-    }
-    if (action.markInterrupted) {
-      await sessionLedger.setStatus(entry.sessionId, "INTERRUPTED");
-    }
-    // `action` already carries sessionId (see reconcileSession), so it alone covers the log fields.
-    logger.warn("reconciled session after restart", { ...action });
-  }
-  // A STARTING/RECORDING ActiveSessionInfo left over from before the crash
-  // is definitely stale — nothing is listening on the other end any more.
-  if (await readActiveSession()) {
-    await writeActiveSession(null);
-  }
-}
-
 export default defineBackground(() => {
   logger.info("service worker started");
-
-  browser.runtime.onStartup.addListener(() => {
-    run(reconcileAfterRestart(), "crash recovery");
-  });
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === "complete")

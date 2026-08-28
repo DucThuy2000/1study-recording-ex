@@ -2,17 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make local recording durable — a session's local footprint is tracked and enumerable (not just the single "current" session), starting a new class is refused before it can run the disk into the danger zone (R9/R10), an OPFS write failure degrades to a bounded in-memory buffer instead of losing chunks (R12), and a Chrome crash mid-class is detected and reconciled against what's actually on disk the next time Chrome starts (spec Task 1.4).
+**Goal:** Make local recording durable — a session's local footprint is tracked and enumerable (not just the single "current" session), starting a new class is refused before it can run the disk into the danger zone (R9/R10), and an OPFS write failure degrades to a bounded in-memory buffer instead of losing chunks (R12).
 
-**Architecture:** Four additive layers on top of the Phase 0 recording pipeline, all pure/testable core logic plus thin `chrome.*`-touching wiring, following the same Adapter/Strategy split as Phase 0:
+> **Status note (2026-08-28):** Task 4 (crash recovery, spec Task 1.4) was implemented, reviewed, and shipped as part of this plan's original execution — then deliberately reverted at the project owner's request, pending a strategy re-discussion. Its section below is removed from this live document; the original design and code are recoverable from git history around commits `d5f03df`..`f753aff` if useful context when it's redesigned. **Tasks 1-3 remain as shipped and are not affected.**
+
+**Architecture:** Three additive layers on top of the Phase 0 recording pipeline, all pure/testable core logic plus thin `chrome.*`-touching wiring, following the same Adapter/Strategy split as Phase 0:
 - `SessionLedger` (`src/core/session-ledger.ts`) — a durable, enumerable registry of every session's local footprint, replacing the single-slot `ActiveSessionInfo` as the source of truth for "what's on disk right now."
 - `evaluateStorageGuard` (`src/core/storage-guard.ts`) — pure preflight/mid-session disk-space and backlog decision, wired into `handleStart()` (blocking) and an offscreen-side periodic check (warn-only, R12).
 - `MemoryChunkBuffer` (`src/core/chunk-buffer.ts`) — the one documented exception to R1, a hard-capped RAM fallback `SessionRecorder` switches into once OPFS itself is judged broken (`InvalidStateError`).
-- `reconcileSession` (`src/core/crash-recovery.ts`) + `RealOpfsInspector` (`src/adapters/opfs.ts`) — on `chrome.runtime.onStartup`, compares the ledger's belief about each unfinished session against what's actually in OPFS and corrects it.
 
 **Tech Stack:** Same as Phase 0 — TypeScript `strict: true`, WXT, Vitest, npm. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-08-26-meet-recorder-extension-design.md` (PHASE 1, Tasks 1.1 through 1.4). Task 1.1's OPFS chunk-writing mechanics were already built in Phase 0 (`src/offscreen-logic/chunk-writer.ts`) — this plan finishes 1.1's other half, the metadata ledger, and builds 1.2–1.4 in full.
+**Spec:** `docs/superpowers/specs/2026-08-26-meet-recorder-extension-design.md` (PHASE 1, Tasks 1.1 through 1.4 — Task 1.4 deferred, see status note above). Task 1.1's OPFS chunk-writing mechanics were already built in Phase 0 (`src/offscreen-logic/chunk-writer.ts`) — this plan finishes 1.1's other half, the metadata ledger, and builds 1.2–1.3 in full.
 
 **Architecture doc:** `docs/superpowers/flowchart/v1.md` documents the Phase 0 system as built — read it for the existing message-routing model and file responsibilities before touching any entrypoint.
 
@@ -40,18 +41,15 @@ Everything in Phase 0's plan still applies (file naming by domain not by single 
       test/storage-guard.test.ts NEW                                              [Task 2]
       chunk-buffer.ts            NEW  MemoryChunkBuffer                           [Task 3]
       test/chunk-buffer.test.ts  NEW                                              [Task 3]
-      crash-recovery.ts          NEW  reconcileSession, sessionsNeedingReconciliation [Task 4]
-      test/crash-recovery.test.ts NEW                                             [Task 4]
-    adapters/
-      opfs.ts                    NEW  OpfsInspector, RealOpfsInspector            [Task 4]
     offscreen-logic/
       chunk-writer.ts            MODIFY  extract ChunkWriterLike interface        [Task 3]
       recorder.ts                MODIFY  onChunkWritten callback (Task 1), memory fallback (Task 3)
+      test/recorder.test.ts      NEW     memory-fallback coverage (final review)
     shared/
       config.ts                  MODIFY  + DISK_CHECK_INTERVAL_MS                 [Task 2]
       messages.ts                MODIFY  + STORAGE_ALERT, + GuardFailureReason members [Task 2]
   entrypoints/
-    background.ts                MODIFY  SessionLedger wiring (1), storage guard (2), onStartup recovery (4)
+    background.ts                MODIFY  SessionLedger wiring (1), storage guard (2)
     offscreen/main.ts            MODIFY  SessionLedger wiring (1), periodic disk check (2), onStorageDegraded (3)
     content.ts                   MODIFY  STORAGE_ALERT banner                     [Task 2]
     popup/main.ts                MODIFY  STORAGE_ALERT no-op case, LOW_DISK/BACKLOG_HIGH copy [Task 2]
@@ -1011,255 +1009,8 @@ git commit -m "feat: fall back to a capped in-memory chunk buffer when OPFS fail
 `InvalidStateError` from OPFS is hard to trigger naturally — mock it: temporarily edit `ChunkWriter.write()` to `throw new DOMException('forced', 'InvalidStateError')` after e.g. the 3rd call, run a real recording, confirm: (a) recording keeps running past that point (R12), (b) the in-tab banner shows the OPFS-error message, (c) the final downloaded file still has audio/video for the whole session (memory-buffered tail included), (d) revert the temporary edit afterward.
 
 ---
-
-### Task 4: Crash Recovery + Integrity Reconciliation (spec Task 1.4)
-
-**Files:**
-- Create: `src/core/crash-recovery.ts`, `src/core/test/crash-recovery.test.ts`
-- Create: `src/adapters/opfs.ts`
-- Modify: `entrypoints/background.ts` (`chrome.runtime.onStartup` listener)
-
-**Interfaces:**
-- Consumes: `SessionLedger` (Task 1), `EventReporter`/`EventBus` (Phase 0).
-- Produces: `reconcileSession(entry, actualSizes): ReconciliationAction`, `sessionsNeedingReconciliation(entries): SessionLedgerEntry[]`.
-- Produces: `OpfsInspector` interface + `RealOpfsInspector` — `listChunkSizes(sessionId): Promise<number[]>`.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `src/core/test/crash-recovery.test.ts`:
-
-```ts
-import { describe, it, expect } from 'vitest';
-import { reconcileSession, sessionsNeedingReconciliation } from '../crash-recovery';
-import type { SessionLedgerEntry } from '../session-ledger';
-
-function entry(overrides: Partial<SessionLedgerEntry> = {}): SessionLedgerEntry {
-  return {
-    sessionId: 's1', meetingCode: 'abc-defg-hij', tabId: 1, startedAtMs: 0,
-    status: 'RECORDING', totalChunks: 3, bytesTotal: 3000,
-    ...overrides,
-  };
-}
-
-describe('sessionsNeedingReconciliation', () => {
-  it('picks only RECORDING and FINALIZING sessions', () => {
-    const entries = [
-      entry({ sessionId: 'a', status: 'RECORDING' }),
-      entry({ sessionId: 'b', status: 'FINALIZING' }),
-      entry({ sessionId: 'c', status: 'DONE' }),
-      entry({ sessionId: 'd', status: 'FAILED' }),
-      entry({ sessionId: 'e', status: 'INTERRUPTED' }),
-    ];
-    expect(sessionsNeedingReconciliation(entries).map((e) => e.sessionId)).toEqual(['a', 'b']);
-  });
-});
-
-describe('reconcileSession', () => {
-  it('marks a RECORDING session interrupted when counts match', () => {
-    const action = reconcileSession(entry({ totalChunks: 2, bytesTotal: 2000 }), [1000, 1000]);
-    expect(action).toEqual({
-      sessionId: 's1', markInterrupted: true,
-      correctedTotalChunks: undefined, correctedBytesTotal: undefined,
-      integrityMismatch: false,
-    });
-  });
-
-  it('flags a mismatch and reports the real numbers when disk disagrees with the ledger', () => {
-    const action = reconcileSession(entry({ totalChunks: 5, bytesTotal: 5000 }), [1000, 1000, 1000]);
-    expect(action.integrityMismatch).toBe(true);
-    expect(action.correctedTotalChunks).toBe(3);
-    expect(action.correctedBytesTotal).toBe(3000);
-  });
-
-  it('marks a FINALIZING session interrupted too (crashed mid-stop)', () => {
-    const action = reconcileSession(entry({ status: 'FINALIZING' }), [1000, 1000, 1000]);
-    expect(action.markInterrupted).toBe(true);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npx vitest run src/core/test/crash-recovery.test.ts`
-Expected: FAIL — module not found.
-
-- [ ] **Step 3: Implement**
-
-Create `src/core/crash-recovery.ts`:
-
-```ts
-import type { SessionLedgerEntry } from './session-ledger';
-
-export interface ReconciliationAction {
-  sessionId: string;
-  markInterrupted: boolean;
-  correctedTotalChunks?: number;
-  correctedBytesTotal?: number;
-  integrityMismatch: boolean;
-}
-
-/**
- * Pure decision logic for the onStartup scan. `actualSizes` is what's really
- * on disk for a session (from OpfsInspector, with zero-size/corrupt files
- * already excluded by the caller) — the ledger's own counters are what
- * background *believed* happened, and can lag or overshoot if Chrome died
- * mid-session before a write's STORAGE_SET message reached it.
- */
-export function reconcileSession(
-  entry: SessionLedgerEntry,
-  actualSizes: readonly number[],
-): ReconciliationAction {
-  const actualTotal = actualSizes.reduce((sum, s) => sum + s, 0);
-  const mismatch = actualSizes.length !== entry.totalChunks || actualTotal !== entry.bytesTotal;
-  return {
-    sessionId: entry.sessionId,
-    markInterrupted: entry.status === 'RECORDING' || entry.status === 'FINALIZING',
-    correctedTotalChunks: mismatch ? actualSizes.length : undefined,
-    correctedBytesTotal: mismatch ? actualTotal : undefined,
-    integrityMismatch: mismatch,
-  };
-}
-
-/** Only sessions left mid-flight when Chrome died need a look — DONE/FAILED/INTERRUPTED were already settled before this restart. */
-export function sessionsNeedingReconciliation(
-  entries: readonly SessionLedgerEntry[],
-): SessionLedgerEntry[] {
-  return entries.filter((e) => e.status === 'RECORDING' || e.status === 'FINALIZING');
-}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npx vitest run src/core/test/crash-recovery.test.ts`
-Expected: PASS, 4 tests.
-
-- [ ] **Step 5: Implement `OpfsInspector`**
-
-Create `src/adapters/opfs.ts`. Deliberately avoids `for await...of` on `FileSystemDirectoryHandle.entries()` — this project's `lib` array (`.wxt/tsconfig.json`, generated) includes `DOM.Iterable` but not `DOM.AsyncIterable`, so async iteration wouldn't typecheck. Sequential probing by index instead, mirroring `ChunkWriter`'s own naming convention exactly — chunks are never sparse (no gaps mid-sequence), so the first missing index is genuinely the end of what's on disk:
-
-```ts
-export interface OpfsInspector {
-  /** Sizes (bytes) of a session's chunk files in order, probed sequentially by index. Empty array if the session directory doesn't exist. */
-  listChunkSizes(sessionId: string): Promise<number[]>;
-}
-
-export class RealOpfsInspector implements OpfsInspector {
-  async listChunkSizes(sessionId: string): Promise<number[]> {
-    try {
-      const root = await navigator.storage.getDirectory();
-      const sessions = await root.getDirectoryHandle('sessions');
-      const dir = await sessions.getDirectoryHandle(sessionId);
-      const sizes: number[] = [];
-      for (let i = 0; ; i++) {
-        const name = `chunk_${String(i).padStart(5, '0')}.webm`;
-        try {
-          const handle = await dir.getFileHandle(name);
-          const file = await handle.getFile();
-          sizes.push(file.size);
-        } catch {
-          break;
-        }
-      }
-      return sizes;
-    } catch {
-      return [];
-    }
-  }
-}
-```
-
-(No test file for this adapter — it touches real OPFS, same precedent as `ChunkWriter` itself in Phase 0, which also has no Vitest coverage. Covered by this task's manual test below instead.)
-
-- [ ] **Step 6: Wire the `onStartup` listener into `entrypoints/background.ts`**
-
-Add imports:
-
-```ts
-import { RealOpfsInspector } from "@/src/adapters/opfs";
-import { reconcileSession, sessionsNeedingReconciliation } from "@/src/core/crash-recovery";
-import { EventReporter } from "@/src/core/event-reporter";
-import { EventBus } from "@/src/core/event-bus";
-import type { RecordingEvent } from "@/src/core/event-reporter";
-```
-
-Add module-scope instances next to the existing `store`/`sessionLedger`:
-
-```ts
-const opfsInspector = new RealOpfsInspector();
-const backgroundEventReporter = new EventReporter(store, new EventBus<{ event: RecordingEvent }>(), logger);
-```
-
-Add the reconciliation function and register it, inside `defineBackground(() => { ... })` alongside the other listener registrations:
-
-```ts
-async function reconcileAfterRestart(): Promise<void> {
-  const stale = sessionsNeedingReconciliation(await sessionLedger.list());
-  for (const entry of stale) {
-    const sizes = (await opfsInspector.listChunkSizes(entry.sessionId)).filter((s) => s > 0);
-    const action = reconcileSession(entry, sizes);
-    if (action.integrityMismatch) {
-      await sessionLedger.setChunkCount(
-        entry.sessionId,
-        action.correctedTotalChunks!,
-        action.correctedBytesTotal!,
-      );
-      await backgroundEventReporter.report("OPFS_ERROR", {
-        sessionId: entry.sessionId,
-        reason: "ledger_mismatch_after_restart",
-        ledgerChunks: entry.totalChunks,
-        actualChunks: action.correctedTotalChunks,
-      });
-    }
-    if (action.markInterrupted) {
-      await sessionLedger.setStatus(entry.sessionId, "INTERRUPTED");
-    }
-    logger.warn("reconciled session after restart", { sessionId: entry.sessionId, ...action });
-  }
-  // A STARTING/RECORDING ActiveSessionInfo left over from before the crash
-  // is definitely stale — nothing is listening on the other end any more.
-  if (await readActiveSession()) {
-    await writeActiveSession(null);
-  }
-}
-```
-
-```ts
-  browser.runtime.onStartup.addListener(() => {
-    run(reconcileAfterRestart(), "crash recovery");
-  });
-```
-
-- [ ] **Step 7: Typecheck and build**
-
-Run: `npx tsc --noEmit && npm run build`
-Expected: clean.
-
-- [ ] **Step 8: Run the full test suite**
-
-Run: `npx vitest run`
-Expected: all tests pass.
-
-- [ ] **Step 9: Commit**
-
-```bash
-git add src/core/crash-recovery.ts src/core/test/crash-recovery.test.ts \
-        src/adapters/opfs.ts entrypoints/background.ts
-git commit -m "feat: reconcile the session ledger against real OPFS contents on browser restart (spec Task 1.4)"
-```
-
-- [ ] **Step 10: Manual test**
-
-`chrome.runtime.onStartup` only fires on a full browser relaunch, not an extension reload — this must be a real quit+reopen, matching the spec's own literal test:
-
-1. Start a recording, let it run ~2 minutes (a few chunks land).
-2. Fully quit Chrome (Cmd+Q on macOS, or kill it via Activity Monitor/Task Manager) — do not close just the tab or window.
-3. Reopen Chrome. Do not open Meet or touch the extension.
-4. Open the offscreen document's chunk directory (see `docs/superpowers/flowchart/v1.md` or ask for the DevTools OPFS-browsing steps) — confirm the chunk files from step 1 are still there, untouched.
-5. Check `chrome://extensions` → service worker logs for `"reconciled session after restart"` — confirm the session was marked `INTERRUPTED`.
-6. Confirm a fresh Start on a new Meet tab works normally afterward (the stale `ActiveSessionInfo` didn't brick anything).
-
----
-
 ## Phase Gate
 
-Per the spec's own working rule ("Không chuyển phase khi chưa qua cổng phase"), Phase 2 does not start until all 4 tasks above are green — tsc clean, full Vitest suite passing, and every manual test in Tasks 2/3/4 actually run and confirmed. Phase 2's plan will be written once this gate passes.
+Per the spec's own working rule ("Không chuyển phase khi chưa qua cổng phase"), Phase 2 does not start until Tasks 1-3 above are green — tsc clean, full Vitest suite passing, and every manual test in Tasks 2/3 actually run and confirmed. All confirmed by the project owner on 2026-08-28.
+
+Task 4 (crash recovery, spec Task 1.4) was implemented and shipped as part of this plan's original execution, then deliberately reverted pending a strategy re-discussion — see the status note at the top of this document. It is not part of this phase's exit gate; Phase 2 proceeds without it, and Task 4 will get its own plan when revisited.
