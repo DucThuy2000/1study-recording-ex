@@ -24,12 +24,19 @@ import {
   sumBacklogBytes,
   formatBytes,
 } from "@/src/core/storage-guard";
+import { RealOpfsInspector } from "@/src/adapters/opfs";
+import { reconcileSession, sessionsNeedingReconciliation } from "@/src/core/crash-recovery";
+import { EventReporter } from "@/src/core/event-reporter";
+import { EventBus } from "@/src/core/event-bus";
+import type { RecordingEvent } from "@/src/core/event-reporter";
 
 const logger = createLogger("background");
 const tabCapture = new ChromeTabCaptureApi();
 const offscreen = new ChromeOffscreenApi();
 const store = new ChromeStorageAdapter();
 const sessionLedger = new SessionLedger(store);
+const opfsInspector = new RealOpfsInspector();
+const backgroundEventReporter = new EventReporter(store, new EventBus<{ event: RecordingEvent }>(), logger);
 
 /**
  * Active-session ownership lives here and nowhere else, persisted rather than
@@ -438,8 +445,51 @@ function run(task: Promise<void>, label: string): void {
   );
 }
 
+/**
+ * `chrome.runtime.onStartup` fires only on a full browser relaunch, never on
+ * an extension reload — the one signal that Chrome (not just the service
+ * worker) died mid-session. Any session the ledger still shows RECORDING or
+ * FINALIZING was never cleanly closed out, so its counters may be behind (or
+ * ahead of) whatever actually made it to OPFS; reconcile against disk before
+ * anything else can touch that session again.
+ */
+async function reconcileAfterRestart(): Promise<void> {
+  const stale = sessionsNeedingReconciliation(await sessionLedger.list());
+  for (const entry of stale) {
+    const sizes = (await opfsInspector.listChunkSizes(entry.sessionId)).filter((s) => s > 0);
+    const action = reconcileSession(entry, sizes);
+    if (action.integrityMismatch) {
+      await sessionLedger.setChunkCount(
+        entry.sessionId,
+        action.correctedTotalChunks!,
+        action.correctedBytesTotal!,
+      );
+      await backgroundEventReporter.report("OPFS_ERROR", {
+        sessionId: entry.sessionId,
+        reason: "ledger_mismatch_after_restart",
+        ledgerChunks: entry.totalChunks,
+        actualChunks: action.correctedTotalChunks,
+      });
+    }
+    if (action.markInterrupted) {
+      await sessionLedger.setStatus(entry.sessionId, "INTERRUPTED");
+    }
+    // `action` already carries sessionId (see reconcileSession), so it alone covers the log fields.
+    logger.warn("reconciled session after restart", { ...action });
+  }
+  // A STARTING/RECORDING ActiveSessionInfo left over from before the crash
+  // is definitely stale — nothing is listening on the other end any more.
+  if (await readActiveSession()) {
+    await writeActiveSession(null);
+  }
+}
+
 export default defineBackground(() => {
   logger.info("service worker started");
+
+  browser.runtime.onStartup.addListener(() => {
+    run(reconcileAfterRestart(), "crash recovery");
+  });
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === "complete")
