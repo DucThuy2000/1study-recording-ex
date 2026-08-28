@@ -107,7 +107,7 @@ export type Message =
   | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }
   | { type: 'VIDEO_STALLED'; sessionId: string; gapMs: number; atMs: number }
   | { type: 'VIDEO_RECOVERED'; sessionId: string; atMs: number }
-  // offscreen → background (the popup receives the same broadcast and renders it)
+  // offscreen → background → content script (content.ts renders the banner; the popup receives the same broadcast but ignores it)
   | { type: 'STORAGE_ALERT'; low: boolean; reason?: 'LOW_DISK' | 'BACKLOG_HIGH' | 'OPFS_ERROR' }
   // background → content script (via browser.tabs.sendMessage)
   | { type: 'RECORDING_ACTIVE'; active: boolean; sessionId: string | null }

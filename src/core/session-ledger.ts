@@ -1,6 +1,6 @@
 import type { KeyValueStore } from '../adapters/storage';
 
-export type SessionLedgerStatus = 'RECORDING' | 'INTERRUPTED' | 'FINALIZING' | 'DONE' | 'FAILED';
+export type SessionLedgerStatus = 'RECORDING' | 'INTERRUPTED' | 'STOPPED' | 'DONE' | 'FAILED';
 
 export interface SessionLedgerEntry {
   sessionId: string;
@@ -26,14 +26,23 @@ function entryKey(sessionId: string): string {
  * with local chunks still on disk, not just the current one.
  *
  * One storage key per session plus a separate index array, not one big
- * `sessions: {...}` object (see this plan's Global Constraints) — so a
- * write from background and a write from offscreen can never race on the
- * same key.
+ * `sessions: {...}` object (see this plan's Global Constraints) — this
+ * prevents *different* sessions' writes from ever clobbering each other,
+ * since each has its own key.
  *
- * recordChunk() is called once per ~5s chunk from a single producer
+ * It does NOT prevent a same-session race between offscreen's recordChunk()
+ * and background's setStatus()/setChunkCount() on that one session's key —
+ * that cross-process read-modify-write race is real and was explicitly
+ * accepted rather than fixed (a `recordChunk()` racing a `setStatus()` can
+ * revert a status change or undercount by one chunk's bytes). It self-heals
+ * on the next full browser restart, when crash-recovery re-derives the
+ * truth from actual OPFS files rather than trusting the ledger's counters.
+ *
+ * recordChunk() itself is called once per ~5s chunk from a single producer
  * (MediaRecorder's ondataavailable, strictly sequential by construction) —
- * unlike EventReporter's report(), there's no scenario where two calls land
- * in the same tick, so no promise-tail serialization is needed here.
+ * unlike EventReporter's report(), there's no scenario where two
+ * recordChunk() calls land in the same tick, so no promise-tail
+ * serialization is needed for THAT specific concern.
  */
 export class SessionLedger {
   constructor(private readonly store: KeyValueStore) {}

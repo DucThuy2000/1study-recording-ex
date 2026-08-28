@@ -218,7 +218,18 @@ async function startRecording(
     activeRecorder = new SessionRecorder(sessionId, mixedStream, tier, {
       onChunkWritten: (_index, bytes) => sessionLedger.recordChunk(sessionId, bytes),
       onStorageDegraded: (error) => {
+        const machine = activeStateMachine;
+        if (machine) {
+          run(
+            machine.transition("DEGRADED", "opfs failed").then((result) => logTransition(result)),
+            "storage degraded transition",
+          );
+        }
         void reportEvent("OPFS_ERROR", { sessionId, error: String(error) });
+        void notify({ type: "STORAGE_ALERT", low: true, reason: "OPFS_ERROR" });
+      },
+      onMemoryBufferFull: () => {
+        void reportEvent("OPFS_ERROR", { sessionId, reason: "memory_buffer_full" });
         void notify({ type: "STORAGE_ALERT", low: true, reason: "OPFS_ERROR" });
       },
     });

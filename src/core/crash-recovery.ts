@@ -23,16 +23,22 @@ export function reconcileSession(
   const mismatch = actualSizes.length !== entry.totalChunks || actualTotal !== entry.bytesTotal;
   return {
     sessionId: entry.sessionId,
-    markInterrupted: entry.status === 'RECORDING' || entry.status === 'FINALIZING',
+    markInterrupted: entry.status === 'RECORDING',
     correctedTotalChunks: mismatch ? actualSizes.length : undefined,
     correctedBytesTotal: mismatch ? actualTotal : undefined,
     integrityMismatch: mismatch,
   };
 }
 
-/** Only sessions left mid-flight when Chrome died need a look — DONE/FAILED/INTERRUPTED were already settled before this restart. */
+/**
+ * Only sessions left mid-flight when Chrome died need a look — DONE, FAILED,
+ * INTERRUPTED and STOPPED were already settled before this restart. STOPPED
+ * in particular means the recorder finished cleanly and its download already
+ * succeeded (locally complete) before Chrome ever went down; it just hasn't
+ * been uploaded yet, which is a Phase 2 concern, not a reconciliation one.
+ */
 export function sessionsNeedingReconciliation(
   entries: readonly SessionLedgerEntry[],
 ): SessionLedgerEntry[] {
-  return entries.filter((e) => e.status === 'RECORDING' || e.status === 'FINALIZING');
+  return entries.filter((e) => e.status === 'RECORDING');
 }

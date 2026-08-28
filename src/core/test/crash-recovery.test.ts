@@ -11,15 +11,15 @@ function entry(overrides: Partial<SessionLedgerEntry> = {}): SessionLedgerEntry 
 }
 
 describe('sessionsNeedingReconciliation', () => {
-  it('picks only RECORDING and FINALIZING sessions', () => {
+  it('picks only RECORDING sessions, excluding STOPPED (a cleanly-finished session, not a crashed one)', () => {
     const entries = [
       entry({ sessionId: 'a', status: 'RECORDING' }),
-      entry({ sessionId: 'b', status: 'FINALIZING' }),
+      entry({ sessionId: 'b', status: 'STOPPED' }),
       entry({ sessionId: 'c', status: 'DONE' }),
       entry({ sessionId: 'd', status: 'FAILED' }),
       entry({ sessionId: 'e', status: 'INTERRUPTED' }),
     ];
-    expect(sessionsNeedingReconciliation(entries).map((e) => e.sessionId)).toEqual(['a', 'b']);
+    expect(sessionsNeedingReconciliation(entries).map((e) => e.sessionId)).toEqual(['a']);
   });
 });
 
@@ -38,10 +38,5 @@ describe('reconcileSession', () => {
     expect(action.integrityMismatch).toBe(true);
     expect(action.correctedTotalChunks).toBe(3);
     expect(action.correctedBytesTotal).toBe(3000);
-  });
-
-  it('marks a FINALIZING session interrupted too (crashed mid-stop)', () => {
-    const action = reconcileSession(entry({ status: 'FINALIZING' }), [1000, 1000, 1000]);
-    expect(action.markInterrupted).toBe(true);
   });
 });

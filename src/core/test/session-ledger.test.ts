@@ -55,4 +55,16 @@ describe('SessionLedger', () => {
     expect(entry?.totalChunks).toBe(3);
     expect(entry?.bytesTotal).toBe(9000);
   });
+
+  it('setStatus on an unknown session is a no-op', async () => {
+    const ledger = new SessionLedger(new InMemoryStore());
+    await expect(ledger.setStatus('missing', 'DONE')).resolves.toBeUndefined();
+    expect(await ledger.get('missing')).toBeUndefined();
+  });
+
+  it('setChunkCount on an unknown session is a no-op', async () => {
+    const ledger = new SessionLedger(new InMemoryStore());
+    await expect(ledger.setChunkCount('missing', 5, 5000)).resolves.toBeUndefined();
+    expect(await ledger.get('missing')).toBeUndefined();
+  });
 });

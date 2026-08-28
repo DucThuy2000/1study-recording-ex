@@ -36,6 +36,15 @@ const offscreen = new ChromeOffscreenApi();
 const store = new ChromeStorageAdapter();
 const sessionLedger = new SessionLedger(store);
 const opfsInspector = new RealOpfsInspector();
+// A second EventReporter instance, separate from offscreen's own — both
+// read-modify-write the same "pendingEvents" storage key, and each only
+// serializes its own writes (see EventReporter's own doc comment). Safe
+// today only because every call site of this instance — reconcileAfterRestart
+// (onStartup) and handleStart's preflight storage-guard refusal — runs
+// exclusively when no session is actively recording, i.e. no offscreen
+// document is alive running the periodic storage check that would otherwise
+// write to the same key concurrently. If this instance is ever used while a
+// session is actively recording, that invariant breaks.
 const backgroundEventReporter = new EventReporter(store, new EventBus<{ event: RecordingEvent }>(), logger);
 
 /**
@@ -243,6 +252,12 @@ async function handleStart(
   const backlogBytes = sumBacklogBytes(await sessionLedger.list());
   const storageGuard = evaluateStorageGuard(freeBytes, backlogBytes);
   if (!storageGuard.allowed) {
+    await backgroundEventReporter.report(
+      storageGuard.reason,
+      storageGuard.reason === "LOW_DISK"
+        ? { freeBytes: storageGuard.freeBytes }
+        : { backlogBytes: storageGuard.backlogBytes },
+    );
     await refuseStart(
       storageGuard.reason,
       storageGuard.reason === "LOW_DISK"
@@ -387,8 +402,11 @@ async function handleRecordingState(
     return;
   }
 
-  if (message.state === "FINALIZING" || message.state === "DONE") {
-    await sessionLedger.setStatus(message.sessionId, message.state);
+  if (message.state === "FINALIZING") {
+    // offscreen only ever reports FINALIZING to background after
+    // recorder.stop() and the download both succeeded — it's always a
+    // terminal, locally-complete signal here, never "still finalizing."
+    await sessionLedger.setStatus(message.sessionId, "STOPPED");
   }
 
   // FINALIZING and the rest are informational; ownership was already released
@@ -448,16 +466,23 @@ function run(task: Promise<void>, label: string): void {
 /**
  * `chrome.runtime.onStartup` fires only on a full browser relaunch, never on
  * an extension reload — the one signal that Chrome (not just the service
- * worker) died mid-session. Any session the ledger still shows RECORDING or
- * FINALIZING was never cleanly closed out, so its counters may be behind (or
- * ahead of) whatever actually made it to OPFS; reconcile against disk before
- * anything else can touch that session again.
+ * worker) died mid-session. Any session the ledger still shows RECORDING was
+ * never cleanly closed out, so its counters may be behind (or ahead of)
+ * whatever actually made it to OPFS; reconcile against disk before anything
+ * else can touch that session again.
  */
 async function reconcileAfterRestart(): Promise<void> {
   const stale = sessionsNeedingReconciliation(await sessionLedger.list());
   for (const entry of stale) {
-    const sizes = (await opfsInspector.listChunkSizes(entry.sessionId)).filter((s) => s > 0);
-    const action = reconcileSession(entry, sizes);
+    const sizes = await opfsInspector.listChunkSizes(entry.sessionId);
+    if (sizes === null) {
+      logger.warn("could not inspect OPFS for reconciliation this restart, will retry next time", {
+        sessionId: entry.sessionId,
+      });
+      continue;
+    }
+    const actualSizes = sizes.filter((s) => s > 0);
+    const action = reconcileSession(entry, actualSizes);
     if (action.integrityMismatch) {
       await sessionLedger.setChunkCount(
         entry.sessionId,
@@ -536,6 +561,12 @@ export default defineBackground(() => {
           );
           return true;
         case "STORAGE_SET":
+          // Fire-and-forget: the sender's own await resolves on message
+          // dispatch, not on this set() actually committing. What makes
+          // ordering-sensitive callers (e.g. Task 1's stop()-waits-for-
+          // ledger-write fix) correct in practice is chrome.storage.local's
+          // FIFO ordering within one storage area, not any guarantee this
+          // handler itself provides.
           run(store.set(message.key, message.value), "storage set");
           return false;
         case "RECORDING_STATE":

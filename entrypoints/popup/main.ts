@@ -116,9 +116,9 @@ function guardFailureText(
     case "MIC_PERMISSION_DENIED":
       return "Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.";
     case "LOW_DISK":
-      return "Ổ đĩa sắp đầy — cần giải phóng dung lượng trước khi ghi.";
+      return message.detail ?? "Ổ đĩa sắp đầy — cần giải phóng dung lượng trước khi ghi.";
     case "BACKLOG_HIGH":
-      return "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại.";
+      return message.detail ?? "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại.";
     case undefined:
       return "Could not start recording.";
     default:

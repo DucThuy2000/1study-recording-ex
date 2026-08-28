@@ -26,7 +26,7 @@ export class ChunkWriter implements ChunkWriterLike {
   async write(blob: Blob): Promise<number> {
     const index = this.nextIndex++;
     const dir = await this.getSessionDir();
-    const name = `chunk_${String(index).padStart(5, "0")}.webm`; // chunk_00001.webm, chunk_00002.webm... so on
+    const name = `chunk_${String(index).padStart(5, "0")}.webm`; // chunk_00000.webm, chunk_00001.webm... so on
     const handle = await dir.getFileHandle(name, { create: true });
     const writable = await handle.createWritable();
     await writable.write(blob);

@@ -15,6 +15,8 @@ export interface SessionRecorderCallbacks {
   onChunkWritten?: (index: number, bytes: number) => void | Promise<void>;
   /** Fired once, the moment OPFS is judged unrecoverable for the rest of this session. Never fired more than once — the fallback is one-way. */
   onStorageDegraded?: (error: unknown) => void;
+  /** Fired once, the moment the memory-buffer fallback's byte cap is first exceeded and a chunk had to be dropped. Never fired more than once. */
+  onMemoryBufferFull?: () => void;
 }
 
 export class SessionRecorder {
@@ -23,6 +25,7 @@ export class SessionRecorder {
   private readonly pendingWrites: Promise<void>[] = [];
   private readonly memoryBuffer: MemoryChunkBuffer;
   private storageMode: "opfs" | "memory" = "opfs";
+  private memoryBufferFullReported = false;
 
   constructor(
     private readonly sessionId: string,
@@ -50,7 +53,10 @@ export class SessionRecorder {
       const bytes = event.data.size;
 
       if (this.storageMode === "memory") {
-        this.memoryBuffer.push(index, event.data);
+        if (!this.memoryBuffer.push(index, event.data) && !this.memoryBufferFullReported) {
+          this.memoryBufferFullReported = true;
+          this.callbacks.onMemoryBufferFull?.();
+        }
         return;
       }
 
@@ -70,7 +76,10 @@ export class SessionRecorder {
               this.storageMode = "memory";
               this.callbacks.onStorageDegraded?.(error);
             }
-            this.memoryBuffer.push(index, event.data);
+            if (!this.memoryBuffer.push(index, event.data) && !this.memoryBufferFullReported) {
+              this.memoryBufferFullReported = true;
+              this.callbacks.onMemoryBufferFull?.();
+            }
           }
         },
       );
