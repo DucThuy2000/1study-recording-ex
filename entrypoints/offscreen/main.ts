@@ -266,24 +266,27 @@ async function startRecording(
     tabMonitor.start();
 
     storageCheckIntervalId = setInterval(() => {
-      void (async () => {
-        const { quota, usage } = await navigator.storage.estimate();
-        const freeBytes = (quota ?? 0) - (usage ?? 0);
-        const backlogBytes = sumBacklogBytes(await sessionLedger.list());
-        const outcome = evaluateStorageGuard(freeBytes, backlogBytes);
-        const wasAlerting = storageAlerting;
-        storageAlerting = !outcome.allowed;
-        if (storageAlerting === wasAlerting) return;
-        if (outcome.allowed) {
-          await notify({ type: "STORAGE_ALERT", low: false });
-          return;
-        }
-        await reportEvent(
-          outcome.reason,
-          outcome.reason === "LOW_DISK" ? { freeBytes: outcome.freeBytes } : { backlogBytes: outcome.backlogBytes },
-        );
-        await notify({ type: "STORAGE_ALERT", low: true, reason: outcome.reason });
-      })();
+      run(
+        (async () => {
+          const { quota, usage } = await navigator.storage.estimate();
+          const freeBytes = (quota ?? 0) - (usage ?? 0);
+          const backlogBytes = sumBacklogBytes(await sessionLedger.list());
+          const outcome = evaluateStorageGuard(freeBytes, backlogBytes);
+          const wasAlerting = storageAlerting;
+          storageAlerting = !outcome.allowed;
+          if (storageAlerting === wasAlerting) return;
+          if (outcome.allowed) {
+            await notify({ type: "STORAGE_ALERT", low: false });
+            return;
+          }
+          await reportEvent(
+            outcome.reason,
+            outcome.reason === "LOW_DISK" ? { freeBytes: outcome.freeBytes } : { backlogBytes: outcome.backlogBytes },
+          );
+          await notify({ type: "STORAGE_ALERT", low: true, reason: outcome.reason });
+        })(),
+        "storage check",
+      );
     }, CONFIG.DISK_CHECK_INTERVAL_MS);
 
     logger.info("offscreen recording started", { sessionId, tier });
