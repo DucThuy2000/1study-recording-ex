@@ -142,6 +142,19 @@ export default defineContentScript({
         case "VIDEO_RECOVERED":
           hideBanner();
           return;
+        case "STORAGE_ALERT":
+          if (message.low) {
+            showBanner(
+              message.reason === "LOW_DISK"
+                ? "⚠ Ổ đĩa sắp đầy — bản ghi có thể bị mất nếu không giải phóng dung lượng"
+                : message.reason === "BACKLOG_HIGH"
+                  ? "⚠ Dữ liệu cũ tồn đọng quá nhiều — hãy mở Chrome để tự động tải lên"
+                  : "⚠ Lỗi lưu trữ — bản ghi đang chuyển sang bộ nhớ tạm",
+            );
+          } else {
+            hideBanner();
+          }
+          return;
         // Addressed to background, the popup or the offscreen document. Content
         // scripts only ever receive what background sends them with
         // tabs.sendMessage, but the switch stays exhaustive so a new message

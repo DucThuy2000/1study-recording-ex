@@ -115,6 +115,10 @@ function guardFailureText(
       return "Grant microphone access in the tab that just opened, then click Start again.";
     case "MIC_PERMISSION_DENIED":
       return "Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.";
+    case "LOW_DISK":
+      return "Ổ đĩa sắp đầy — cần giải phóng dung lượng trước khi ghi.";
+    case "BACKLOG_HIGH":
+      return "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại.";
     case undefined:
       return "Could not start recording.";
     default:
@@ -191,6 +195,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case "AUDIO_ALERT":
     case "VIDEO_STALLED":
     case "VIDEO_RECOVERED":
+    case "STORAGE_ALERT":
     case "RECORDING_ACTIVE":
       return;
     default:

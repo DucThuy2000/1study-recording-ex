@@ -12,7 +12,9 @@ export type GuardFailureReason =
   | 'ALREADY_RECORDING'
   | 'START_FAILED'
   | 'MIC_PERMISSION_DENIED'
-  | 'MIC_PERMISSION_NEEDED';
+  | 'MIC_PERMISSION_NEEDED'
+  | 'LOW_DISK'
+  | 'BACKLOG_HIGH';
 
 /**
  * `getUserMedia` in the offscreen document can never show a permission prompt
@@ -105,6 +107,8 @@ export type Message =
   | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }
   | { type: 'VIDEO_STALLED'; sessionId: string; gapMs: number; atMs: number }
   | { type: 'VIDEO_RECOVERED'; sessionId: string; atMs: number }
+  // offscreen → background (the popup receives the same broadcast and renders it)
+  | { type: 'STORAGE_ALERT'; low: boolean; reason?: 'LOW_DISK' | 'BACKLOG_HIGH' | 'OPFS_ERROR' }
   // background → content script (via browser.tabs.sendMessage)
   | { type: 'RECORDING_ACTIVE'; active: boolean; sessionId: string | null }
   // background → popup

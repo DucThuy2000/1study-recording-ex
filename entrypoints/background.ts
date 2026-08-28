@@ -19,6 +19,11 @@ import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
 import { evaluateGuard } from "@/src/core/tab-guard";
 import { assertNever } from "@/src/core/assert";
 import { SessionLedger } from "@/src/core/session-ledger";
+import {
+  evaluateStorageGuard,
+  sumBacklogBytes,
+  formatBytes,
+} from "@/src/core/storage-guard";
 
 const logger = createLogger("background");
 const tabCapture = new ChromeTabCaptureApi();
@@ -223,6 +228,20 @@ async function handleStart(
   );
   if (!guard.allowed) {
     await refuseStart(guard.reason);
+    return;
+  }
+
+  const { quota, usage } = await navigator.storage.estimate();
+  const freeBytes = (quota ?? 0) - (usage ?? 0);
+  const backlogBytes = sumBacklogBytes(await sessionLedger.list());
+  const storageGuard = evaluateStorageGuard(freeBytes, backlogBytes);
+  if (!storageGuard.allowed) {
+    await refuseStart(
+      storageGuard.reason,
+      storageGuard.reason === "LOW_DISK"
+        ? `Chỉ còn ${formatBytes(storageGuard.freeBytes)} trống — cần tối thiểu ${formatBytes(CONFIG.DISK_MIN_FREE_BYTES)} để bắt đầu ghi.`
+        : `Bản ghi cũ tồn đọng ${formatBytes(storageGuard.backlogBytes)} chưa dọn — tạm dừng ghi mới cho tới khi được tải lên.`,
+    );
     return;
   }
 
@@ -475,6 +494,7 @@ export default defineBackground(() => {
         case "AUDIO_ALERT":
         case "VIDEO_STALLED":
         case "VIDEO_RECOVERED":
+        case "STORAGE_ALERT":
           run(fanOutToRecordedTab(message), "alert fan-out");
           return false;
         case "MIC_MUTE_CHANGED":

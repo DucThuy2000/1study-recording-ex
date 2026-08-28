@@ -25,6 +25,7 @@ import { assertNever } from "@/src/core/assert";
 import { isErr, type Result } from "@/src/core/result";
 import type { RecordingEvent } from "@/src/core/event-reporter";
 import { SessionLedger } from "@/src/core/session-ledger";
+import { evaluateStorageGuard, sumBacklogBytes } from "@/src/core/storage-guard";
 
 const logger = createLogger("offscreen");
 const bus = new EventBus<{ event: RecordingEvent }>();
@@ -53,6 +54,8 @@ let micMonitor: AudioLevelMonitor | undefined;
 let tabMonitor: AudioLevelMonitor | undefined;
 let stopFrameMonitor: (() => void) | undefined;
 let micMuted = false;
+let storageCheckIntervalId: ReturnType<typeof setInterval> | undefined;
+let storageAlerting = false;
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -144,6 +147,9 @@ function releaseSessionHandles(): void {
   micMonitor?.stop();
   tabMonitor?.stop();
   stopFrameMonitor?.();
+  if (storageCheckIntervalId !== undefined) clearInterval(storageCheckIntervalId);
+  storageCheckIntervalId = undefined;
+  storageAlerting = false;
   activeMix?.micSource.mediaStream.getTracks().forEach((track) => track.stop());
   activeTabStream?.getTracks().forEach((track) => track.stop());
   const ctx = activeMix?.ctx;
@@ -258,6 +264,27 @@ async function startRecording(
     });
     micMonitor.start();
     tabMonitor.start();
+
+    storageCheckIntervalId = setInterval(() => {
+      void (async () => {
+        const { quota, usage } = await navigator.storage.estimate();
+        const freeBytes = (quota ?? 0) - (usage ?? 0);
+        const backlogBytes = sumBacklogBytes(await sessionLedger.list());
+        const outcome = evaluateStorageGuard(freeBytes, backlogBytes);
+        const wasAlerting = storageAlerting;
+        storageAlerting = !outcome.allowed;
+        if (storageAlerting === wasAlerting) return;
+        if (outcome.allowed) {
+          await notify({ type: "STORAGE_ALERT", low: false });
+          return;
+        }
+        await reportEvent(
+          outcome.reason,
+          outcome.reason === "LOW_DISK" ? { freeBytes: outcome.freeBytes } : { backlogBytes: outcome.backlogBytes },
+        );
+        await notify({ type: "STORAGE_ALERT", low: true, reason: outcome.reason });
+      })();
+    }, CONFIG.DISK_CHECK_INTERVAL_MS);
 
     logger.info("offscreen recording started", { sessionId, tier });
     // The start ack. Until background sees this it treats the session as
@@ -416,6 +443,7 @@ browser.runtime.onMessage.addListener(
       case "AUDIO_ALERT":
       case "VIDEO_STALLED":
       case "VIDEO_RECOVERED":
+      case "STORAGE_ALERT":
       case "RECORDING_ACTIVE":
       case "GUARD_RESULT":
         return false;
