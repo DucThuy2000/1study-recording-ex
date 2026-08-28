@@ -66,8 +66,10 @@ export class SessionRecorder {
           // back to the memory buffer instead, once, and stay there
           // (R12: keep recording, never stop for a storage failure).
           if (error instanceof DOMException && error.name === "InvalidStateError") {
-            this.storageMode = "memory";
-            this.callbacks.onStorageDegraded?.(error);
+            if (this.storageMode === "opfs") {
+              this.storageMode = "memory";
+              this.callbacks.onStorageDegraded?.(error);
+            }
             this.memoryBuffer.push(index, event.data);
           }
         },
