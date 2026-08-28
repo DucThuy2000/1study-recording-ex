@@ -4,14 +4,21 @@ export interface ReadAllResult {
   missingIndices: number[];
 }
 
-export class ChunkWriter {
+export interface ChunkWriterLike {
+  write(blob: Blob): Promise<number>;
+  readAll(): Promise<ReadAllResult>;
+}
+
+export class ChunkWriter implements ChunkWriterLike {
   private nextIndex = 0;
 
   constructor(private readonly sessionId: string) {}
 
   private async getSessionDir(): Promise<FileSystemDirectoryHandle> {
     const root = await navigator.storage.getDirectory();
-    const sessions = await root.getDirectoryHandle('sessions', { create: true });
+    const sessions = await root.getDirectoryHandle("sessions", {
+      create: true,
+    });
     return sessions.getDirectoryHandle(this.sessionId, { create: true });
   }
 
@@ -19,7 +26,7 @@ export class ChunkWriter {
   async write(blob: Blob): Promise<number> {
     const index = this.nextIndex++;
     const dir = await this.getSessionDir();
-    const name = `chunk_${String(index).padStart(5, '0')}.webm`;
+    const name = `chunk_${String(index).padStart(5, "0")}.webm`; // chunk_00001.webm, chunk_00002.webm... so on
     const handle = await dir.getFileHandle(name, { create: true });
     const writable = await handle.createWritable();
     await writable.write(blob);
@@ -38,7 +45,7 @@ export class ChunkWriter {
     const parts: Blob[] = [];
     const missingIndices: number[] = [];
     for (let i = 0; i < this.nextIndex; i++) {
-      const name = `chunk_${String(i).padStart(5, '0')}.webm`;
+      const name = `chunk_${String(i).padStart(5, "0")}.webm`;
       try {
         const handle = await dir.getFileHandle(name);
         parts.push(await handle.getFile());
@@ -46,6 +53,6 @@ export class ChunkWriter {
         missingIndices.push(i);
       }
     }
-    return { blob: new Blob(parts, { type: 'video/webm' }), missingIndices };
+    return { blob: new Blob(parts, { type: "video/webm" }), missingIndices };
   }
 }

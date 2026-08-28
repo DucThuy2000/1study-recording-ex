@@ -217,6 +217,10 @@ async function startRecording(
 
     activeRecorder = new SessionRecorder(sessionId, mixedStream, tier, {
       onChunkWritten: (_index, bytes) => sessionLedger.recordChunk(sessionId, bytes),
+      onStorageDegraded: (error) => {
+        void reportEvent("OPFS_ERROR", { sessionId, error: String(error) });
+        void notify({ type: "STORAGE_ALERT", low: true, reason: "OPFS_ERROR" });
+      },
     });
     activeRecorder.start();
 
