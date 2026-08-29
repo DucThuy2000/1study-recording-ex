@@ -99,8 +99,3 @@ describe("evaluateTabUrlChange", () => {
     ).toBeNull();
   });
 });
-
-/** MutationObserver delivers asynchronously; let the microtask queue drain. */
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}

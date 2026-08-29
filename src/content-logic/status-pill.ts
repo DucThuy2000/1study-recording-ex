@@ -1,4 +1,4 @@
-import { formatClock } from "../core/badge-format";
+import { formatClock } from "../core/time-format";
 import { CONFIG } from "../shared/config";
 
 const COLORS = {

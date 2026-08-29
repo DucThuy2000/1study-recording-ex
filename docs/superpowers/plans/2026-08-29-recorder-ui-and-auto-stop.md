@@ -4,7 +4,7 @@
 
 **Goal:** Dừng ghi hình tự động khi giáo viên đóng tab Meet hoặc rời cuộc họp, và thiết kế lại toàn bộ bề mặt giao diện của extension theo hệ màu cam.
 
-**Architecture:** Phát hiện kết thúc lớp đặt ở background (nơi duy nhất giữ trạng thái phiên) qua `tabs.onRemoved` và `tabs.onUpdated`, cộng một lưới an toàn ở offscreen nghe `videoTrack.onended`. Cả ba đổ về một hàm `endSession` duy nhất. Giao diện gồm ba bề mặt độc lập: badge trên icon (background, chạy bằng `chrome.alarms`), popup (đồng hồ + hai thanh mức âm nhận qua message `AUDIO_LEVEL`), và pill trạng thái trong tab Meet (content script, dựng trong shadow root). Mọi quyết định đều nằm trong module thuần có unit test; các entrypoint chỉ làm dây nối.
+**Architecture:** Phát hiện kết thúc lớp đặt ở background (nơi duy nhất giữ trạng thái phiên) qua `tabs.onRemoved` và `tabs.onUpdated`, cộng một lưới an toàn ở offscreen nghe `videoTrack.onended`. Cả ba đổ về một hàm `endSession` duy nhất. Giao diện gồm hai bề mặt: popup (đồng hồ + hai thanh mức âm nhận qua message `AUDIO_LEVEL`) và pill trạng thái trong tab Meet (content script, dựng trong shadow root). Mọi quyết định đều nằm trong module thuần có unit test; các entrypoint chỉ làm dây nối.
 
 **Tech Stack:** TypeScript strict, WXT (Vite) + Manifest V3, Vitest + jsdom, `@webext-core/fake-browser`.
 
@@ -18,7 +18,7 @@
 - Constructor injection, không singleton, không biến global. Class nào không test được mà không cần Chrome thật là thiết kế sai.
 - Không `console.log` thô — dùng `createLogger(scope)`. Không bao giờ log nội dung media hoặc token.
 - **R12** — không bao giờ chặn lớp đang diễn ra: không modal, không overlay bắt thao tác. Pill phải `pointer-events: none`.
-- **R13** — không đặt logic quan trọng vào `setInterval` của content script (tab nền bị bóp còn 1 lần/phút). Đồng hồ pill chỉ vẽ chữ; mọi quyết định nằm ở background (`chrome.alarms`) và offscreen.
+- **R13** — không đặt logic quan trọng vào `setInterval` của content script (tab nền bị bóp còn 1 lần/phút). Đồng hồ pill chỉ vẽ chữ; mọi quyết định nằm ở background và offscreen.
 - Hệ màu, dùng đúng các giá trị này: `--brand: #F97316` · `--brand-dark: #EA580C` · `--danger: #DC2626` · `--ok: #16A34A` · `--ink: #1F2937` · `--muted: #6B7280` · `--surface: #FFFFFF` · `--line: #E5E7EB`. Không dùng vàng.
 - Toàn bộ chữ hiển thị cho giáo viên viết bằng tiếng Việt.
 - **Không đụng tới:** uploader, `lms-client`, giao thức chunk, xác thực LMS, heartbeat, phát hiện layout Tiled, `chunk-writer`, `session-ledger`, `storage-guard`, `event-reporter`, `state-machine`, `frame-monitor`, `device-tier`, `tab-guard`, `entrypoints/permission/`.
@@ -26,11 +26,7 @@
 
 ### Ghi chú sai lệch so với spec
 
-Spec liệt kê `src/core/badge-format.ts` chỉ có `formatElapsedBadge`. Kế hoạch này để file đó export thêm `formatClock` — cùng một trách nhiệm (trình bày thời gian đã ghi), và popup lẫn pill đều cần nó. Không tạo file thứ hai cho một hàm bốn dòng.
-
 Spec §8 liệt kê `entrypoints/popup/index.html` và `main.ts` nhưng không nêu file CSS riêng. Kế hoạch tách style popup ra `entrypoints/popup/style.css` thay vì nhét `<style>` vào HTML — style của popup dài hơn 100 dòng, để trong HTML thì cả hai thứ đều khó đọc.
-
-Spec không nêu module theo dõi cảnh báo. Kế hoạch thêm `src/core/alert-set.ts` vì spec §4 yêu cầu badge đổi sang `--danger` khi DEGRADED, mà background cần biết cảnh báo nào đang bật để quyết định — bốn nguồn cảnh báo bật/tắt độc lập, không thể dùng một cờ boolean.
 
 ---
 
@@ -254,7 +250,7 @@ git commit -m "feat: add a pure detector for tab events that end a recording ses
 
 **Interfaces:**
 - Consumes: `evaluateTabRemoved`, `evaluateTabUrlChange`, `SessionEndReason` từ Task 1.
-- Produces: `endSession(sessionId: string, reason: EndReason): Promise<void>` — đường finalize duy nhất trong background. Task 5 sẽ chèn thêm việc xoá badge vào chính hàm này.
+- Produces: `endSession(sessionId: string, reason: SessionEndReason): Promise<void>` — đường finalize duy nhất trong background.
 
 - [ ] **Step 1: Tách `endSession` khỏi `handleStop`**
 
@@ -534,59 +530,27 @@ git commit -m "fix: self-stop the offscreen recorder when the captured video tra
 
 ---
 
-### Task 4: Module thuần cho badge và tập cảnh báo
+### Task 4: Định dạng đồng hồ
 
-Hai module thuần Task 5 cần. Không đấu dây vào đâu ở task này.
+Một module thuần cho đồng hồ mà popup (Task 6) và pill (Task 7) đều dùng.
 
 **Files:**
-- Create: `src/core/badge-format.ts`
-- Create: `src/core/alert-set.ts`
-- Test: `src/core/test/badge-format.test.ts`
-- Test: `src/core/test/alert-set.test.ts`
+- Create: `src/core/time-format.ts`
+- Test: `src/core/test/time-format.test.ts`
 
 **Interfaces:**
 - Consumes: không.
-- Produces: `formatElapsedBadge(elapsedMs: number): string` (tối đa 4 ký tự) · `formatClock(elapsedMs: number): string` (`45:12` hoặc `1:05:30`) · `type AlertKey = 'mic' | 'tab' | 'video' | 'storage'` · `withAlert(alerts: readonly AlertKey[], key: AlertKey, active: boolean): AlertKey[]` · `isDegraded(alerts: readonly AlertKey[]): boolean`.
+- Produces: `formatClock(elapsedMs: number): string` — `45:12` dưới một giờ, `1:05:30` từ một giờ.
 
-- [ ] **Step 1: Viết test thất bại cho badge-format**
+- [ ] **Step 1: Viết test thất bại**
 
-Tạo `src/core/test/badge-format.test.ts`:
+Tạo `src/core/test/time-format.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest';
-import { formatElapsedBadge, formatClock } from '../badge-format';
+import { formatClock } from '../time-format';
 
 const MIN = 60_000;
-
-describe('formatElapsedBadge', () => {
-  it('shows whole minutes below an hour', () => {
-    expect(formatElapsedBadge(0)).toBe('0m');
-    expect(formatElapsedBadge(59_999)).toBe('0m');
-    expect(formatElapsedBadge(45 * MIN)).toBe('45m');
-    expect(formatElapsedBadge(59 * MIN)).toBe('59m');
-  });
-
-  it('switches to hours with zero-padded minutes at an hour', () => {
-    expect(formatElapsedBadge(60 * MIN)).toBe('1h00');
-    expect(formatElapsedBadge(65 * MIN)).toBe('1h05');
-    expect(formatElapsedBadge(150 * MIN)).toBe('2h30');
-  });
-
-  it('caps at 9h59 so the text never exceeds four characters', () => {
-    expect(formatElapsedBadge(10 * 60 * MIN)).toBe('9h59');
-    expect(formatElapsedBadge(99 * 60 * MIN)).toBe('9h59');
-  });
-
-  it('treats negative input as zero rather than rendering a minus sign', () => {
-    expect(formatElapsedBadge(-5000)).toBe('0m');
-  });
-
-  it('never produces more than four characters', () => {
-    for (let minutes = 0; minutes <= 700; minutes += 7) {
-      expect(formatElapsedBadge(minutes * MIN).length).toBeLessThanOrEqual(4);
-    }
-  });
-});
 
 describe('formatClock', () => {
   it('shows mm:ss below an hour', () => {
@@ -607,31 +571,15 @@ describe('formatClock', () => {
 
 - [ ] **Step 2: Chạy test, xác nhận nó thất bại**
 
-Run: `npx vitest run src/core/test/badge-format.test.ts`
-Expected: FAIL — `Failed to resolve import "../badge-format"`
+Run: `npx vitest run src/core/test/time-format.test.ts`
+Expected: FAIL — `Failed to resolve import "../time-format"`
 
 - [ ] **Step 3: Viết implementation**
 
-Tạo `src/core/badge-format.ts`:
+Tạo `src/core/time-format.ts`:
 
 ```ts
-/**
- * chrome.action.setBadgeText cắt cụt text quá dài, nên trần này là ràng buộc
- * cứng chứ không phải lựa chọn thẩm mỹ. Lớp học không dài tới 10 tiếng.
- */
-const MAX_BADGE_MS = 10 * 60 * 60 * 1000 - 60_000;
-
-/** Thời gian đã ghi, gói trong tối đa 4 ký tự: `0m`, `45m`, `1h05`. */
-export function formatElapsedBadge(elapsedMs: number): string {
-  const capped = Math.min(Math.max(elapsedMs, 0), MAX_BADGE_MS);
-  const totalMinutes = Math.floor(capped / 60_000);
-  if (totalMinutes < 60) return `${totalMinutes}m`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}h${String(minutes).padStart(2, '0')}`;
-}
-
-/** Đồng hồ đầy đủ cho popup và pill: `45:12` dưới một giờ, `1:05:30` từ một giờ. */
+/** Đồng hồ cho popup và pill: `45:12` dưới một giờ, `1:05:30` từ một giờ. */
 export function formatClock(elapsedMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -643,319 +591,21 @@ export function formatClock(elapsedMs: number): string {
 }
 ```
 
-- [ ] **Step 4: Chạy test, xác nhận nó xanh**
-
-Run: `npx vitest run src/core/test/badge-format.test.ts`
-Expected: PASS — 8 test
-
-- [ ] **Step 5: Viết test thất bại cho alert-set**
-
-Tạo `src/core/test/alert-set.test.ts`:
-
-```ts
-import { describe, it, expect } from 'vitest';
-import { withAlert, isDegraded, type AlertKey } from '../alert-set';
-
-describe('withAlert', () => {
-  it('adds an alert that was not present', () => {
-    expect(withAlert([], 'mic', true)).toEqual(['mic']);
-  });
-
-  it('does not duplicate an alert that is already raised', () => {
-    expect(withAlert(['mic'], 'mic', true)).toEqual(['mic']);
-  });
-
-  it('removes an alert when it clears', () => {
-    expect(withAlert(['mic', 'video'], 'mic', false)).toEqual(['video']);
-  });
-
-  it('clearing an alert that was never raised is a no-op', () => {
-    expect(withAlert(['video'], 'mic', false)).toEqual(['video']);
-  });
-
-  it('tracks the four sources independently', () => {
-    let alerts: AlertKey[] = [];
-    alerts = withAlert(alerts, 'mic', true);
-    alerts = withAlert(alerts, 'storage', true);
-    alerts = withAlert(alerts, 'mic', false);
-    expect(alerts).toEqual(['storage']);
-  });
-
-  it('does not mutate the array it was given', () => {
-    const original: AlertKey[] = ['mic'];
-    withAlert(original, 'video', true);
-    expect(original).toEqual(['mic']);
-  });
-});
-
-describe('isDegraded', () => {
-  it('is false with no alerts and true with any', () => {
-    expect(isDegraded([])).toBe(false);
-    expect(isDegraded(['tab'])).toBe(true);
-    expect(isDegraded(['mic', 'video'])).toBe(true);
-  });
-});
-```
-
-- [ ] **Step 6: Chạy test, xác nhận nó thất bại**
-
-Run: `npx vitest run src/core/test/alert-set.test.ts`
-Expected: FAIL — `Failed to resolve import "../alert-set"`
-
-- [ ] **Step 7: Viết implementation**
-
-Tạo `src/core/alert-set.ts`:
-
-```ts
-/**
- * Bốn nguồn cảnh báo bật/tắt độc lập với nhau, nên một cờ boolean không đủ:
- * mic hết câm trong khi ổ đĩa vẫn sắp đầy thì phiên vẫn đang DEGRADED.
- *
- * Lưu dưới dạng mảng chứ không phải Set vì nó được persist vào
- * chrome.storage.local — service worker chết bất cứ lúc nào và Set không
- * qua được structured clone của storage.
- */
-export type AlertKey = 'mic' | 'tab' | 'video' | 'storage';
-
-/** Trả về tập cảnh báo mới sau khi bật hoặc tắt một nguồn. Không sửa mảng đầu vào. */
-export function withAlert(
-  alerts: readonly AlertKey[],
-  key: AlertKey,
-  active: boolean,
-): AlertKey[] {
-  const without = alerts.filter((alert) => alert !== key);
-  return active ? [...without, key] : without;
-}
-
-/** Còn bất kỳ cảnh báo nào đang bật thì phiên đang DEGRADED (vẫn ghi tiếp — R12). */
-export function isDegraded(alerts: readonly AlertKey[]): boolean {
-  return alerts.length > 0;
-}
-```
-
-- [ ] **Step 8: Chạy toàn bộ test và kiểm tra kiểu**
+- [ ] **Step 4: Kiểm tra kiểu và chạy toàn bộ test**
 
 Run: `npm run compile && npm test`
 Expected: cả hai xanh.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/core/badge-format.ts src/core/alert-set.ts src/core/test/badge-format.test.ts src/core/test/alert-set.test.ts
-git commit -m "feat: add pure helpers for badge text and the active alert set"
+git add src/core/time-format.ts src/core/test/time-format.test.ts
+git commit -m "feat: add a clock formatter for the popup and the in-tab pill"
 ```
 
 ---
 
-### Task 5: Badge trạng thái trên icon extension
-
-**Files:**
-- Modify: `src/shared/config.ts`
-- Modify: `entrypoints/background.ts`
-
-**Interfaces:**
-- Consumes: `formatElapsedBadge` từ Task 4; `withAlert`, `isDegraded`, `AlertKey` từ Task 4; `endSession` từ Task 2.
-- Produces: `refreshBadge(): Promise<void>` — nội bộ background, không export.
-
-- [ ] **Step 1: Thêm hằng số vào config**
-
-Trong `src/shared/config.ts`, thêm vào object `CONFIG`, ngay sau `STARTING_ACK_TIMEOUT_MS`:
-
-```ts
-  BADGE_TICK_ALARM_MINUTES: 1,
-  BADGE_COLOR_RECORDING: '#F97316',
-  BADGE_COLOR_DEGRADED: '#DC2626',
-```
-
-- [ ] **Step 2: Thêm state cảnh báo và hàm vẽ badge vào background**
-
-Trong `entrypoints/background.ts`, thêm import:
-
-```ts
-import { formatElapsedBadge } from '@/src/core/badge-format';
-import { withAlert, isDegraded, type AlertKey } from '@/src/core/alert-set';
-```
-
-Rồi thêm, cạnh các hằng số key đã có (`ACTIVE_SESSION_KEY`, `LAST_ERROR_KEY`):
-
-```ts
-const ACTIVE_ALERTS_KEY = 'activeAlerts';
-const BADGE_ALARM = 'badgeTick';
-
-async function readActiveAlerts(): Promise<AlertKey[]> {
-  return (await store.get<AlertKey[]>(ACTIVE_ALERTS_KEY)) ?? [];
-}
-
-/**
- * Vẽ lại badge từ trạng thái đã persist chứ không từ biến trong bộ nhớ:
- * service worker chết giữa buổi là chuyện thường, và đồng hồ phải chạy tiếp
- * đúng chứ không nhảy về 0.
- */
-async function refreshBadge(): Promise<void> {
-  const active = await readActiveSession();
-  if (!active) {
-    await browser.action.setBadgeText({ text: '' });
-    return;
-  }
-  const degraded = isDegraded(await readActiveAlerts());
-  await browser.action.setBadgeText({
-    text: formatElapsedBadge(Date.now() - active.startedAtMs),
-  });
-  await browser.action.setBadgeBackgroundColor({
-    color: degraded ? CONFIG.BADGE_COLOR_DEGRADED : CONFIG.BADGE_COLOR_RECORDING,
-  });
-}
-
-/** Bật/tắt một nguồn cảnh báo rồi vẽ lại badge nếu mức độ nghiêm trọng đổi. */
-async function setAlert(key: AlertKey, active: boolean): Promise<void> {
-  const before = await readActiveAlerts();
-  const after = withAlert(before, key, active);
-  if (isDegraded(before) === isDegraded(after) && before.length === after.length) return;
-  await store.set(ACTIVE_ALERTS_KEY, after);
-  await refreshBadge();
-}
-```
-
-- [ ] **Step 3: Bật alarm khi vào RECORDING**
-
-Trong `handleRecordingState`, nhánh `message.state === 'RECORDING'`, ngay trước `logger.info('recording confirmed', ...)`:
-
-```ts
-    await store.set(ACTIVE_ALERTS_KEY, []);
-    await browser.alarms.create(BADGE_ALARM, {
-      periodInMinutes: CONFIG.BADGE_TICK_ALARM_MINUTES,
-    });
-    await refreshBadge();
-```
-
-`chrome.alarms` chứ không phải `setInterval`: service worker bị Chrome giết bất cứ lúc nào, alarm đánh thức nó dậy đúng hạn còn `setInterval` thì chết theo.
-
-- [ ] **Step 4: Tắt alarm và xoá badge trong `endSession`**
-
-Nhánh `FINALIZING` và nhánh `FAILED` của `handleRecordingState` cũng giải phóng phiên mà không đi qua `endSession`, nên cùng ba dòng đó phải có ở cả hai chỗ. Gom vào một hàm để không có ba bản sao:
-
-```ts
-/** Mọi thứ gắn với badge của một phiên đang chạy. Gọi ở mọi đường giải phóng phiên. */
-async function clearBadgeState(): Promise<void> {
-  await browser.alarms.clear(BADGE_ALARM);
-  await store.set(ACTIVE_ALERTS_KEY, []);
-  await browser.action.setBadgeText({ text: '' });
-}
-```
-
-`endSession` gọi `await clearBadgeState();` ngay sau `await writeActiveSession(null);`.
-
-Nhánh `FAILED` của `handleRecordingState`:
-
-```ts
-    if (active?.sessionId === message.sessionId) {
-      await writeActiveSession(null);
-      await clearBadgeState();
-      await sendToTab(active.tabId, {
-        type: 'RECORDING_ACTIVE',
-        active: false,
-        sessionId: null,
-        startedAtMs: null,
-      });
-    }
-```
-
-Nhánh `FINALIZING` của `handleRecordingState`:
-
-```ts
-    if (active?.sessionId === message.sessionId) {
-      await writeActiveSession(null);
-      await clearBadgeState();
-      await sendToTab(active.tabId, {
-        type: 'RECORDING_ACTIVE',
-        active: false,
-        sessionId: null,
-        startedAtMs: null,
-      });
-    }
-```
-
-- [ ] **Step 5: Đăng ký listener cho alarm**
-
-Trong khối `defineBackground`, thêm:
-
-```ts
-  browser.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name !== BADGE_ALARM) return;
-    run(refreshBadge(), 'badge tick');
-  });
-```
-
-- [ ] **Step 6: Nối cảnh báo vào badge**
-
-Trong `browser.runtime.onMessage.addListener` của background, tách bốn case cảnh báo đang gộp chung. Thay:
-
-```ts
-        case "AUDIO_ALERT":
-        case "VIDEO_STALLED":
-        case "VIDEO_RECOVERED":
-        case "STORAGE_ALERT":
-          run(fanOutToRecordedTab(message), "alert fan-out");
-          return false;
-```
-
-bằng:
-
-```ts
-        case 'AUDIO_ALERT':
-          run(setAlert(message.source, message.silent), 'audio alert badge');
-          run(fanOutToRecordedTab(message), 'alert fan-out');
-          return false;
-        case 'VIDEO_STALLED':
-          run(setAlert('video', true), 'video stall badge');
-          run(fanOutToRecordedTab(message), 'alert fan-out');
-          return false;
-        case 'VIDEO_RECOVERED':
-          run(setAlert('video', false), 'video recovered badge');
-          run(fanOutToRecordedTab(message), 'alert fan-out');
-          return false;
-        case 'STORAGE_ALERT':
-          run(setAlert('storage', message.low), 'storage alert badge');
-          run(fanOutToRecordedTab(message), 'alert fan-out');
-          return false;
-```
-
-`message.source` của `AUDIO_ALERT` đã là `'mic' | 'tab'`, khớp thẳng với `AlertKey`.
-
-- [ ] **Step 7: Kiểm tra kiểu, test, build**
-
-Run: `npm run compile && npm test && npm run build`
-Expected: cả ba xanh.
-
-- [ ] **Step 8: Kiểm chứng thủ công**
-
-Reload extension, rồi:
-
-1. Bắt đầu ghi → badge hiện `0m` nền cam trong vòng vài giây.
-2. Đợi qua mốc phút → badge thành `1m`, rồi `2m`.
-3. Rút micro, đợi ~70 giây → badge chuyển nền đỏ, số phút vẫn chạy.
-4. Cắm micro lại, nói vài câu → badge về nền cam.
-5. Dừng ghi → badge biến mất hoàn toàn.
-6. Đóng tab Meet giữa buổi (không bấm Dừng) → badge cũng biến mất.
-
-- [ ] **Step 9: Kiểm chứng thủ công — sống sót qua cái chết của service worker**
-
-1. Bắt đầu ghi, đợi 2 phút.
-2. `chrome://extensions` → nút **Service worker** → trong DevTools chạy `chrome.runtime.reload()`... **không** làm vậy (nó khởi động lại cả extension). Thay vào đó: đóng tab DevTools của service worker, đợi khoảng 40 giây cho Chrome tự cho nó ngủ, rồi đợi tới lần alarm kế tiếp.
-3. Xem badge.
-
-Kỳ vọng: badge tiếp tục đúng số phút tính từ lúc bắt đầu, **không** nhảy về `0m`.
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add src/shared/config.ts entrypoints/background.ts
-git commit -m "feat: show elapsed recording time and alert state on the extension icon badge"
-```
-
----
-
-### Task 6: Mức âm trực tiếp từ offscreen ra popup
+### Task 5: Mức âm trực tiếp từ offscreen ra popup
 
 **Files:**
 - Modify: `src/shared/config.ts`
@@ -1198,7 +848,7 @@ Trong `releaseSessionHandles`, thêm cạnh chỗ clear `storageCheckIntervalId`
 - `entrypoints/offscreen/main.ts` — vào nhóm case "phát ra chứ không tiêu thụ", cạnh `case 'AUDIO_ALERT':`
 - `entrypoints/background.ts` — vào nhóm case bỏ qua, **không** đấu vào `setAlert` hay `fanOutToRecordedTab`: mức âm chỉ dành cho popup, content script không nhận
 - `entrypoints/content.ts` — vào nhóm case bỏ qua
-- `entrypoints/popup/main.ts` — tạm thời cho vào nhóm bỏ qua; Task 7 sẽ biến nó thành nơi vẽ thanh
+- `entrypoints/popup/main.ts` — tạm thời cho vào nhóm bỏ qua; Task 6 sẽ biến nó thành nơi vẽ thanh
 
 - [ ] **Step 10: Kiểm tra kiểu, test, build**
 
@@ -1215,7 +865,7 @@ chrome.runtime.onMessage.addListener((m) => { if (m.type === 'AUDIO_LEVEL') cons
 
 Nói vào micro. Kỳ vọng: message chảy về khoảng 4 lần/giây, `mic` nhảy lên rõ rệt khi nói và về gần 0 khi im. Bấm nút mute của Meet → `mic` về 0.
 
-Ghi nhận có chủ ý: dòng message 4/giây này giữ service worker sống suốt buổi ghi. Đó là đánh đổi đã chọn — badge nhờ vậy luôn đúng — chứ không phải tác dụng phụ ngoài ý muốn.
+Ghi nhận có chủ ý: dòng message 4/giây này giữ service worker sống suốt buổi ghi. Đó là đánh đổi đã chọn, không phải tác dụng phụ ngoài ý muốn.
 
 - [ ] **Step 12: Commit**
 
@@ -1226,7 +876,7 @@ git commit -m "feat: stream normalized mic and tab audio levels from the offscre
 
 ---
 
-### Task 7: Thiết kế lại popup
+### Task 6: Thiết kế lại popup
 
 **Files:**
 - Create: `src/shared/theme.css`
@@ -1234,7 +884,7 @@ git commit -m "feat: stream normalized mic and tab audio levels from the offscre
 - Modify: `entrypoints/popup/main.ts`
 
 **Interfaces:**
-- Consumes: `formatClock` từ Task 4; message `AUDIO_LEVEL` từ Task 6; `ActiveSessionInfo.meetingCode` và `startedAtMs` từ Task 1.
+- Consumes: `formatClock` từ Task 4; message `AUDIO_LEVEL` từ Task 5; `ActiveSessionInfo.meetingCode` và `startedAtMs` từ Task 1.
 - Produces: không có export mới.
 
 - [ ] **Step 1: Tạo file token màu**
@@ -1431,7 +1081,7 @@ import { getActiveTab } from '@/src/adapters/chrome-api';
 import { createLogger } from '@/src/core/logger';
 import { isMeetUrl, extractMeetingCode } from '@/src/core/meeting-code';
 import { evaluateGuard } from '@/src/core/tab-guard';
-import { formatClock } from '@/src/core/badge-format';
+import { formatClock } from '@/src/core/time-format';
 import { assertNever } from '@/src/core/assert';
 
 const logger = createLogger('popup');
@@ -1735,7 +1385,7 @@ git commit -m "feat: redesign the popup with an orange theme, elapsed clock and 
 
 ---
 
-### Task 8: Pill trạng thái trong tab Meet
+### Task 7: Pill trạng thái trong tab Meet
 
 **Files:**
 - Create: `src/content-logic/status-pill.ts`
@@ -1750,7 +1400,7 @@ git commit -m "feat: redesign the popup with an orange theme, elapsed clock and 
 Tạo `src/content-logic/status-pill.ts`:
 
 ```ts
-import { formatClock } from '../core/badge-format';
+import { formatClock } from '../core/time-format';
 
 /**
  * Bản sao của các token trong src/shared/theme.css. Shadow root không kế thừa
@@ -2081,11 +1731,11 @@ Reload extension, mở một phòng Meet.
 - [ ] **Step 5: Chạy trọn vẹn một lượt hồi quy**
 
 1. Ghi 3 phút ở một phòng Meet có ít nhất 2 người, layout Tiled.
-2. Trong lúc ghi: mở popup kiểm tra thanh mức âm, xem badge trên icon, xem pill.
+2. Trong lúc ghi: mở popup kiểm tra thanh mức âm, xem pill.
 3. Bấm "Kết thúc cuộc gọi".
 4. Mở file `.webm` tải về.
 
-Kỳ vọng: video có đủ lưới camera, nghe rõ cả giáo viên lẫn học sinh, file dừng đúng lúc rời cuộc họp, không có đuôi ảnh đơ, badge và pill đều đã biến mất.
+Kỳ vọng: video có đủ lưới camera, nghe rõ cả giáo viên lẫn học sinh, file dừng đúng lúc rời cuộc họp, không có đuôi ảnh đơ, pill đã biến mất.
 
 - [ ] **Step 6: Commit**
 

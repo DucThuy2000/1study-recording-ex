@@ -5,7 +5,7 @@ import { getActiveTab } from "@/src/adapters/chrome-api";
 import { createLogger } from "@/src/core/logger";
 import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
 import { evaluateGuard } from "@/src/core/tab-guard";
-import { formatClock } from "@/src/core/badge-format";
+import { formatClock } from "@/src/core/time-format";
 import { assertNever } from "@/src/core/assert";
 
 const logger = createLogger("popup");

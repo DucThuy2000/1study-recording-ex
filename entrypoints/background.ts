@@ -22,8 +22,6 @@ import {
   evaluateTabUrlChange,
   type SessionEndReason,
 } from "@/src/core/session-end-detector";
-import { formatElapsedBadge } from "@/src/core/badge-format";
-import { withAlert, isDegraded, type AlertKey } from "@/src/core/alert-set";
 import { assertNever } from "@/src/core/assert";
 import { SessionLedger } from "@/src/core/session-ledger";
 import {
@@ -54,8 +52,6 @@ const backgroundEventReporter = new EventReporter(
  */
 const ACTIVE_SESSION_KEY = "activeSession";
 const LAST_ERROR_KEY = "lastSessionError";
-const ACTIVE_ALERTS_KEY = "activeAlerts";
-const BADGE_ALARM = "badgeTick";
 
 function makeSessionId(): string {
   return crypto.randomUUID();
@@ -83,48 +79,6 @@ async function readLastError(): Promise<string | null> {
 
 async function writeLastError(error: string | null): Promise<void> {
   await store.set(LAST_ERROR_KEY, error);
-}
-
-async function readActiveAlerts(): Promise<AlertKey[]> {
-  return (await store.get<AlertKey[]>(ACTIVE_ALERTS_KEY)) ?? [];
-}
-
-/**
- * Vẽ lại badge từ trạng thái đã persist chứ không từ biến trong bộ nhớ:
- * service worker chết giữa buổi là chuyện thường, và đồng hồ phải chạy tiếp
- * đúng chứ không nhảy về 0.
- */
-async function refreshBadge(): Promise<void> {
-  const active = await readActiveSession();
-  if (!active) {
-    await browser.action.setBadgeText({ text: "" });
-    return;
-  }
-  const degraded = isDegraded(await readActiveAlerts());
-  await browser.action.setBadgeText({
-    text: formatElapsedBadge(Date.now() - active.startedAtMs),
-  });
-  await browser.action.setBadgeBackgroundColor({
-    color: degraded
-      ? CONFIG.BADGE_COLOR_DEGRADED
-      : CONFIG.BADGE_COLOR_RECORDING,
-  });
-}
-
-/** Mọi thứ gắn với badge của một phiên đang chạy. Gọi ở mọi đường giải phóng phiên. */
-async function clearBadgeState(): Promise<void> {
-  await browser.alarms.clear(BADGE_ALARM);
-  await store.set(ACTIVE_ALERTS_KEY, []);
-  await browser.action.setBadgeText({ text: "" });
-}
-
-/** Bật/tắt một nguồn cảnh báo rồi vẽ lại badge nếu tập cảnh báo thực sự đổi. */
-async function setAlert(key: AlertKey, active: boolean): Promise<void> {
-  const before = await readActiveAlerts();
-  const after = withAlert(before, key, active);
-  if (before.length === after.length) return;
-  await store.set(ACTIVE_ALERTS_KEY, after);
-  await refreshBadge();
 }
 
 /**
@@ -167,13 +121,6 @@ async function refuseStart(
   });
 }
 
-/**
- * `getUserMedia` in the offscreen document can never show a permission
- * prompt — it has no visible surface. So this is checked up front, from a
- * document that can actually answer (the offscreen document itself; its
- * origin's grant is shared with every extension page), rather than letting
- * a denied or never-asked mic fail the whole recording silently (R4/R6).
- */
 async function checkMicPermissionState(): Promise<
   MicPermissionStateResponse["state"]
 > {
@@ -195,16 +142,6 @@ async function checkMicPermissionState(): Promise<
   }
 }
 
-/**
- * Refuses the start AND persists the reason, unlike a guard refusal (which
- * the popup can always recompute live from the tab it's looking at). Nothing
- * but this round-trip knows the mic permission state, and opening the tab
- * below is itself liable to kill the popup before it ever renders the
- * `GUARD_RESULT` broadcast — the same focus-loss problem that ruled out
- * priming from the popup in the first place, just one step removed. Without
- * persisting it, the one attempt where this guidance matters most (the very
- * first click, before anything is granted) is the one most likely to lose it.
- */
 async function refuseStartAndPersist(
   reason: MessageOf<"GUARD_RESULT">["reason"],
   detail: string,
@@ -213,12 +150,6 @@ async function refuseStartAndPersist(
   await refuseStart(reason, detail);
 }
 
-/**
- * Brings an already-open permission tab to the front instead of piling up a
- * new one on every repeated Start click — plausible here specifically,
- * since a teacher whose popup just vanished (see refuseStartAndPersist) has
- * no visible feedback and no obvious reason not to click Start again.
- */
 async function openPermissionTab(): Promise<void> {
   const url = browser.runtime.getURL("/permission.html");
   const [existing] = await browser.tabs.query({ url });
@@ -362,7 +293,6 @@ async function endSession(
   logger.info("ending session", { sessionId, reason });
 
   await writeActiveSession(null);
-  await clearBadgeState();
   if (active) {
     await sendToTab(active.tabId, {
       type: "RECORDING_ACTIVE",
@@ -393,13 +323,6 @@ async function handleRecordingState(
       return;
     }
     await writeActiveSession({ ...active, status: "RECORDING" });
-    await store.set(ACTIVE_ALERTS_KEY, []);
-    // chrome.alarms chứ không phải setInterval: service worker bị Chrome giết
-    // bất cứ lúc nào, alarm đánh thức nó dậy đúng hạn còn setInterval chết theo.
-    await browser.alarms.create(BADGE_ALARM, {
-      periodInMinutes: CONFIG.BADGE_TICK_ALARM_MINUTES,
-    });
-    await refreshBadge();
     await sendToTab(active.tabId, {
       type: "RECORDING_ACTIVE",
       active: true,
@@ -423,7 +346,6 @@ async function handleRecordingState(
     await writeLastError(detail);
     if (active?.sessionId === message.sessionId) {
       await writeActiveSession(null);
-      await clearBadgeState();
       await sendToTab(active.tabId, {
         type: "RECORDING_ACTIVE",
         active: false,
@@ -437,12 +359,9 @@ async function handleRecordingState(
   if (message.state === "FINALIZING") {
     await sessionLedger.setStatus(message.sessionId, "STOPPED");
 
-    // Khi offscreen tự dừng (video track chết) thì background chưa hề biết.
-    // endSession chưa chạy, nên phải dọn ở đây. Nếu endSession đã chạy rồi
-    // thì active đã null và cả khối này là no-op.
+    // Double check to release the recoding state
     if (active?.sessionId === message.sessionId) {
       await writeActiveSession(null);
-      await clearBadgeState();
       await sendToTab(active.tabId, {
         type: "RECORDING_ACTIVE",
         active: false,
@@ -519,11 +438,6 @@ function run(task: Promise<void>, label: string): void {
 
 export default defineBackground(() => {
   logger.info("service worker started");
-
-  browser.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name !== BADGE_ALARM) return;
-    run(refreshBadge(), "badge tick");
-  });
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === "complete") refreshActionState(tabId, tab.url);
@@ -604,19 +518,9 @@ export default defineBackground(() => {
           run(handleRecordingState(message), "state update");
           return false;
         case "AUDIO_ALERT":
-          run(setAlert(message.source, message.silent), "audio alert badge");
-          run(fanOutToRecordedTab(message), "alert fan-out");
-          return false;
         case "VIDEO_STALLED":
-          run(setAlert("video", true), "video stall badge");
-          run(fanOutToRecordedTab(message), "alert fan-out");
-          return false;
         case "VIDEO_RECOVERED":
-          run(setAlert("video", false), "video recovered badge");
-          run(fanOutToRecordedTab(message), "alert fan-out");
-          return false;
         case "STORAGE_ALERT":
-          run(setAlert("storage", message.low), "storage alert badge");
           run(fanOutToRecordedTab(message), "alert fan-out");
           return false;
         case "MIC_MUTE_CHANGED":
@@ -628,8 +532,8 @@ export default defineBackground(() => {
         case "MEETING_LEFT":
           run(handleMeetingLeft(sender.tab?.id), "meeting left");
           return false;
-        // Mức âm chỉ dành cho popup — không đấu vào setAlert cũng không
-        // fan-out sang content script, pill không hiện mức âm.
+        // Mức âm chỉ dành cho popup — không fan-out sang content script,
+        // pill không hiện mức âm.
         case "AUDIO_LEVEL":
         // Messages this worker emits rather than consumes.
         case "RECORDING_STARTED":
