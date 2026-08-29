@@ -3,34 +3,12 @@ import { browser } from "wxt/browser";
 import { createLogger } from "@/src/core/logger";
 import { assertNever } from "@/src/core/assert";
 import { StatusPill } from "@/src/content-logic/status-pill";
+import { watchCallEnded } from "@/src/content-logic/call-end-watcher";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
 
 const logger = createLogger("content");
-
-// Meet's own mic-mute button. `data-is-muted` is a functional state
-// attribute, not display text, so unlike aria-label (which is translated —
-// Meet renders "Bật micrô" / "Turn on microphone" depending on the teacher's
-// account locale) it should hold regardless of language. Still exactly the
-// kind of selector that breaks when Google ships a new Meet build — no
-// different in kind from the layout-detection fragility already called out
-// for Task 4.2, so the fallback is the same: never found means recording
-// continues exactly as it does today, just without mute detection.
 const MUTE_BUTTON_SELECTOR = "button[data-is-muted]";
 
-/**
- * Watches Meet's mute button and calls `onChange` whenever its muted state
- * changes (immediately once found, then again on every real toggle).
- *
- * Re-queries the button fresh on every observed mutation rather than holding
- * onto one element reference — confirmed by testing against a live Meet call
- * that clicking the button logged the state exactly once and then nothing on
- * every later click, which is the signature of the button being a *new* DOM
- * node each time (an SPA re-render swapping the element) rather than the same
- * node's attribute changing in place. Watching document.body for `childList`
- * (node swapped) and `attributes`/`data-is-muted` (attribute changed in
- * place) together covers both, without needing to know which one Meet
- * actually does.
- */
 function watchMicMuteButton(onChange: (muted: boolean) => void): void {
   let lastMuted: boolean | undefined;
 
@@ -60,6 +38,13 @@ export default defineContentScript({
     const pill = new StatusPill();
     let lastKnownMicMuted = false;
 
+    watchCallEnded(() => {
+      logger.info("Meet showed its post-call screen");
+      void browser.runtime.sendMessage({
+        type: "MEETING_LEFT",
+      } satisfies Message);
+    });
+
     watchMicMuteButton((muted) => {
       lastKnownMicMuted = muted;
       void browser.runtime.sendMessage({
@@ -68,8 +53,6 @@ export default defineContentScript({
       } satisfies Message);
     });
 
-    // Hỏi trạng thái ngay khi nạp, để reload tab giữa buổi không làm mất pill
-    // và không làm đồng hồ đếm lại từ đầu.
     void (async () => {
       try {
         const response = await browser.runtime.sendMessage<
@@ -142,6 +125,8 @@ export default defineContentScript({
         // This script sends MIC_MUTE_CHANGED rather than receiving it, and
         // never sees SET_MIC_MUTED at all (background → offscreen only).
         case "MIC_MUTE_CHANGED":
+        // Cũng do script này gửi đi, không nhận.
+        case "MEETING_LEFT":
         case "SET_MIC_MUTED":
         case "RECORDING_STARTED":
         case "RECORDING_STOP":

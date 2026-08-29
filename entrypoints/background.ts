@@ -349,18 +349,10 @@ async function handleStart(
   }
 }
 
-/** Vì sao một phiên kết thúc. Rộng hơn `SessionEndReason` vì bấm Dừng không phải sự kiện tab. */
-type EndReason = SessionEndReason | "USER_STOPPED";
-
-/**
- * Đường finalize duy nhất. Mọi cách kết thúc một phiên — giáo viên bấm Dừng,
- * đóng tab, rời cuộc họp — đều đi qua đây, nên chỉ có một trình tự dọn dẹp
- * để suy luận và để sửa.
- *
- * `reason` chỉ dùng để ghi log. Trạng thái trong sessionLedger vẫn do đường
- * FINALIZING sẵn có ghi khi offscreen chốt xong file.
- */
-async function endSession(sessionId: string, reason: EndReason): Promise<void> {
+async function endSession(
+  sessionId: string,
+  reason: SessionEndReason,
+): Promise<void> {
   const active = await readActiveSession();
   if (!active || active.sessionId !== sessionId) {
     logger.warn("end requested for a session this worker does not own", {
@@ -372,8 +364,6 @@ async function endSession(sessionId: string, reason: EndReason): Promise<void> {
 
   logger.info("ending session", { sessionId, reason });
 
-  // Giải phóng quyền sở hữu trước: kể cả khi offscreen đã biến mất, giáo viên
-  // vẫn phải bắt đầu được phiên mới ngay sau đó.
   await writeActiveSession(null);
   await clearBadgeState();
   if (active) {
@@ -384,8 +374,8 @@ async function endSession(sessionId: string, reason: EndReason): Promise<void> {
       startedAtMs: null,
     });
   }
-  // The single relay into the offscreen document, from the single place that
-  // ever relays it.
+
+  // offscreen listen this event then stop recorder
   await browser.runtime.sendMessage({ type: "RECORDING_STOP", sessionId });
 }
 
@@ -448,9 +438,6 @@ async function handleRecordingState(
   }
 
   if (message.state === "FINALIZING") {
-    // offscreen only ever reports FINALIZING to background after
-    // recorder.stop() and the download both succeeded — it's always a
-    // terminal, locally-complete signal here, never "still finalizing."
     await sessionLedger.setStatus(message.sessionId, "STOPPED");
 
     // Khi offscreen tự dừng (video track chết) thì background chưa hề biết.
@@ -469,7 +456,6 @@ async function handleRecordingState(
     return;
   }
 
-  // Các trạng thái còn lại chỉ mang tính thông tin.
   logger.info("session state", {
     sessionId: message.sessionId,
     state: message.state,
@@ -499,6 +485,22 @@ async function handleMicMuteChanged(
     type: "SET_MIC_MUTED",
     muted: message.muted,
   } satisfies Message);
+}
+
+/**
+ * Meet giữ nguyên URL khi giáo viên bấm "Kết thúc cuộc gọi" — nó chỉ vẽ đè
+ * màn hình hậu-cuộc-gọi — nên `evaluateTabUrlChange` không bao giờ thấy, và
+ * `videoTrack.onended` cũng không: tab vẫn đang bị capture, chỉ là đang quay
+ * đúng cái màn hình đó. Đây là đường phát hiện duy nhất cho trường hợp này.
+ *
+ * Chỉ chấp nhận từ đúng tab đang ghi. Mọi tab Meet đều chạy content script,
+ * nên một tab Meet khác kết thúc cuộc gọi của nó không được phép dừng lớp
+ * đang dạy.
+ */
+async function handleMeetingLeft(senderTabId: number | undefined): Promise<void> {
+  const active = await readActiveSession();
+  if (!active || active.tabId !== senderTabId) return;
+  await endSession(active.sessionId, "MEETING_LEFT");
 }
 
 async function buildStateResponse(
@@ -531,12 +533,8 @@ export default defineBackground(() => {
   });
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.status === "complete")
-      void refreshActionState(tabId, tab.url);
+    if (changeInfo.status === "complete") refreshActionState(tabId, tab.url);
 
-    // Bấm "Kết thúc cuộc gọi" làm Meet điều hướng khỏi mã phòng. onUpdated
-    // bắn cả với điều hướng SPA qua history.pushState, nên không cần load lại
-    // trang mới nhận được.
     if (changeInfo.url === undefined) return;
     run(
       (async () => {
@@ -549,10 +547,6 @@ export default defineBackground(() => {
     );
   });
 
-  // Đóng tab đang ghi = lớp kết thúc. Không có listener này thì tabCapture
-  // chết theo tab (khung hình đóng băng) trong khi mic getUserMedia — vốn
-  // độc lập với tab — vẫn thu tiếp: đúng cái đuôi ảnh đơ kèm tiếng giáo viên
-  // mà bản ghi đang bị dính.
   browser.tabs.onRemoved.addListener((tabId) => {
     run(
       (async () => {
@@ -637,6 +631,9 @@ export default defineBackground(() => {
             handleMicMuteChanged(message, sender.tab?.id),
             "mic mute changed",
           );
+          return false;
+        case "MEETING_LEFT":
+          run(handleMeetingLeft(sender.tab?.id), "meeting left");
           return false;
         // Mức âm chỉ dành cho popup — không đấu vào setAlert cũng không
         // fan-out sang content script, pill không hiện mức âm.

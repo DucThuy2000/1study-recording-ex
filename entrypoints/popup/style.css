@@ -1,6 +1,18 @@
 @import '../../src/shared/theme.css';
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * Thuộc tính `hidden` chỉ được UA stylesheet đặt `display: none`, nên bất kỳ
+ * `display` nào khai ở đây cũng đè nó — chip, .levels và .room đều từng hiện
+ * ra trong lúc chưa ghi vì lý do này (.clock thì ẩn đúng, vì nó không khai
+ * display). Khôi phục ý nghĩa của `hidden` một lần cho toàn bộ popup.
+ */
+[hidden] {
+  display: none !important;
+}
 
 body {
   margin: 0;
@@ -10,7 +22,10 @@ body {
   background: var(--surface);
 }
 
-.app { display: flex; flex-direction: column; }
+.app {
+  display: flex;
+  flex-direction: column;
+}
 
 .hdr {
   display: flex;
@@ -21,7 +36,9 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.brand { font-weight: 600; }
+.brand {
+  font-weight: 600;
+}
 
 .chip {
   display: inline-flex;
@@ -35,7 +52,11 @@ body {
   background: var(--brand);
   white-space: nowrap;
 }
-.chip[data-degraded='true'] { background: var(--danger); }
+
+.chip[data-degraded='true'] {
+  background: var(--danger);
+}
+
 .chip::before {
   content: '';
   width: 7px;
@@ -44,7 +65,12 @@ body {
   background: currentColor;
 }
 
-.body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 .clock {
   font-size: 34px;
@@ -55,13 +81,39 @@ body {
   color: var(--ink);
 }
 
-.room { display: flex; justify-content: space-between; align-items: baseline; }
-.room-label { color: var(--muted); font-size: 13px; }
-.room-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.room {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
 
-.levels { display: flex; flex-direction: column; gap: 9px; }
-.level { display: flex; align-items: center; gap: 10px; }
-.level-label { width: 66px; flex: none; font-size: 13px; color: var(--muted); }
+.room-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.room-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.levels {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.level {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.level-label {
+  width: 66px;
+  flex: none;
+  font-size: 13px;
+  color: var(--muted);
+}
 
 .meter {
   flex: 1;
@@ -79,11 +131,23 @@ body {
   transition: width 120ms linear;
 }
 
-.message { margin: 0; font-size: 13px; color: var(--muted); }
-.message[data-tone='error'] { color: var(--danger); }
-.message[data-tone='ok'] { color: var(--ok); }
+.message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
 
-.actions { padding: 0 16px 16px; }
+.message[data-tone='error'] {
+  color: var(--danger);
+}
+
+.message[data-tone='ok'] {
+  color: var(--ok);
+}
+
+.actions {
+  padding: 0 16px 16px;
+}
 
 .btn {
   width: 100%;
@@ -94,10 +158,27 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.btn:disabled { opacity: 0.45; cursor: default; }
 
-.btn-primary { background: var(--brand); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
-.btn-danger { background: var(--surface); color: var(--danger); border-color: var(--danger); }
-.btn-danger:hover:not(:disabled) { background: #fef2f2; }
+.btn-primary {
+  background: var(--brand);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.btn-danger {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #fef2f2;
+}

@@ -490,9 +490,6 @@ browser.runtime.onMessage.addListener(
         run(startRecording(message), "start recording");
         return false;
       case "RECORDING_STOP":
-        // The only path into the stop sequence. The popup's own STOP_RECORDING is
-        // deliberately a different type tag, so its broadcast — which this
-        // document also receives — can never race this relay (C2).
         run(stopRecording(message), "stop recording");
         return false;
       case "GET_MIC_PERMISSION_STATE":
@@ -515,6 +512,7 @@ browser.runtime.onMessage.addListener(
       // Sent by the content script, addressed to background — this document
       // never sees it directly.
       case "MIC_MUTE_CHANGED":
+      case "MEETING_LEFT":
       // This document emits STORAGE_GET/STORAGE_SET (via MessagingStorageAdapter)
       // rather than consuming them — background answers them.
       case "STORAGE_GET":

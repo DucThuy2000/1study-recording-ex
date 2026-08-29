@@ -223,8 +223,6 @@ el.stop.addEventListener("click", () => {
     if (view.kind !== "RECORDING") return;
     const { sessionId } = view;
     enterView({ kind: "STOPPING", sessionId });
-    // Chỉ gửi tới background. Background là context duy nhất chuyển lệnh dừng
-    // vào offscreen, nên không có đường giao thứ hai.
     await browser.runtime.sendMessage({ type: "STOP_RECORDING", sessionId });
   })();
 });
@@ -251,9 +249,6 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case "RECORDING_STATE":
       if (message.state === "RECORDING") {
         notice = null;
-        // Không tin elapsedMs của message: rehydrate lấy startedAtMs đã persist,
-        // là mốc duy nhất sống sót qua việc đóng/mở popup và cái chết của
-        // service worker.
         void rehydrate();
       } else if (message.state === "FAILED") {
         notice = { text: message.error ?? "Ghi hình thất bại.", tone: "error" };
@@ -282,6 +277,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case "RECORDING_STOP":
     case "GET_MIC_PERMISSION_STATE":
     case "MIC_MUTE_CHANGED":
+    case "MEETING_LEFT":
     case "SET_MIC_MUTED":
     case "STORAGE_GET":
     case "STORAGE_SET":

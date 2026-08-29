@@ -1,4 +1,4 @@
-import type { SessionState } from '../core/state-machine';
+import type { SessionState } from "../core/state-machine";
 
 /**
  * Why a start request was refused. The first two mirror `GuardResult`'s reasons
@@ -7,14 +7,14 @@ import type { SessionState } from '../core/state-machine';
  * ask the offscreen document for microphone permission state.
  */
 export type GuardFailureReason =
-  | 'NOT_MEET_TAB'
-  | 'MEETING_CODE_MISMATCH'
-  | 'ALREADY_RECORDING'
-  | 'START_FAILED'
-  | 'MIC_PERMISSION_DENIED'
-  | 'MIC_PERMISSION_NEEDED'
-  | 'LOW_DISK'
-  | 'BACKLOG_HIGH';
+  | "NOT_MEET_TAB"
+  | "MEETING_CODE_MISMATCH"
+  | "ALREADY_RECORDING"
+  | "START_FAILED"
+  | "MIC_PERMISSION_DENIED"
+  | "MIC_PERMISSION_NEEDED"
+  | "LOW_DISK"
+  | "BACKLOG_HIGH";
 
 /**
  * `getUserMedia` in the offscreen document can never show a permission prompt
@@ -23,7 +23,7 @@ export type GuardFailureReason =
  * Chrome has never asked, `'denied'` means the teacher (or a prior attempt)
  * already said no.
  */
-export type MicPermissionState = 'granted' | 'denied' | 'prompt';
+export type MicPermissionState = "granted" | "denied" | "prompt";
 
 /** Reply to `GET_MIC_PERMISSION_STATE`, sent by the offscreen document via `sendResponse`. */
 export interface MicPermissionStateResponse {
@@ -35,7 +35,7 @@ export interface MicPermissionStateResponse {
  * document has not acked yet. `RECORDING` = offscreen confirmed via
  * `RECORDING_STATE`. The popup must never render `STARTING` as "recording".
  */
-export type ActiveSessionStatus = 'STARTING' | 'RECORDING';
+export type ActiveSessionStatus = "STARTING" | "RECORDING";
 
 /**
  * The single source of truth for "is a session active, and which tab owns it".
@@ -45,13 +45,6 @@ export type ActiveSessionStatus = 'STARTING' | 'RECORDING';
 export interface ActiveSessionInfo {
   sessionId: string;
   tabId: number;
-  /**
-   * Mã phòng Meet của tab đang ghi. Dùng để phát hiện giáo viên đã rời cuộc
-   * họp: URL đổi mà mã phòng khác đi nghĩa là lớp kết thúc.
-   *
-   * Phiên cũ còn sót trong chrome.storage.local từ bản trước không có trường
-   * này, nên nó phải được đọc như một giá trị có thể thiếu ở phía tiêu thụ.
-   */
   meetingCode: string;
   status: ActiveSessionStatus;
   startedAtMs: number;
@@ -85,46 +78,75 @@ export interface StorageGetResponse {
  */
 export type Message =
   // popup → background (control)
-  | { type: 'START_RECORDING'; tabId: number }
-  | { type: 'STOP_RECORDING'; sessionId: string }
-  | { type: 'GET_RECORDING_STATE' }
+  | { type: "START_RECORDING"; tabId: number }
+  | { type: "STOP_RECORDING"; sessionId: string }
+  | { type: "GET_RECORDING_STATE" }
   // content script → background: Meet's own mute button, detected via a
   // MutationObserver on its `data-is-muted` attribute (fails soft — if Meet
   // ever changes this markup, the button is just never found and recording
   // continues exactly as it does today, without mute detection).
-  | { type: 'MIC_MUTE_CHANGED'; muted: boolean }
+  | { type: "MIC_MUTE_CHANGED"; muted: boolean }
+  // content script → background: Meet đã vẽ màn hình hậu-cuộc-gọi. Cần một
+  // message riêng vì Meet KHÔNG đổi URL khi rời cuộc họp (đã kiểm chứng trên
+  // Meet thật), nên bộ phát hiện dựa trên URL ở background không bao giờ thấy.
+  // Fail mềm giống MIC_MUTE_CHANGED: selector hỏng thì message không bao giờ
+  // được gửi, ghi hình chạy tiếp đúng như trước.
+  | { type: "MEETING_LEFT" }
   // background → offscreen (commands)
-  | { type: 'RECORDING_STARTED'; sessionId: string; streamId: string }
-  | { type: 'RECORDING_STOP'; sessionId: string }
-  | { type: 'GET_MIC_PERMISSION_STATE' }
+  | { type: "RECORDING_STARTED"; sessionId: string; streamId: string }
+  | { type: "RECORDING_STOP"; sessionId: string }
+  | { type: "GET_MIC_PERMISSION_STATE" }
   // Meet's mute button only stops Meet's own WebRTC pipeline from
   // transmitting — it has no effect on this extension's independent
   // getUserMedia() mic capture, so the recording would otherwise keep the
   // teacher's voice through a mute the recording (and Meet's own UI) both
   // show as off. Relayed from MIC_MUTE_CHANGED, restricted to the tab
   // actually being recorded.
-  | { type: 'SET_MIC_MUTED'; muted: boolean }
+  | { type: "SET_MIC_MUTED"; muted: boolean }
   // offscreen → background: offscreen can use only chrome.runtime (confirmed
   // against Chrome's own offscreen-document reference — chrome.storage, like
   // every other extension API, simply doesn't exist there), so anything the
   // offscreen document needs to persist goes through background instead.
-  | { type: 'STORAGE_GET'; key: string }
-  | { type: 'STORAGE_SET'; key: string; value: unknown }
+  | { type: "STORAGE_GET"; key: string }
+  | { type: "STORAGE_SET"; key: string; value: unknown }
   // offscreen → background (the popup receives the same broadcast and renders it)
-  | { type: 'RECORDING_STATE'; sessionId: string; state: SessionState; elapsedMs: number; error?: string }
-  | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }
+  | {
+      type: "RECORDING_STATE";
+      sessionId: string;
+      state: SessionState;
+      elapsedMs: number;
+      error?: string;
+    }
+  | { type: "AUDIO_ALERT"; source: "mic" | "tab"; silent: boolean }
   // offscreen → popup: mức âm trực tiếp cho hai thanh, đơn vị phần trăm 0–100
   // (đã chuẩn hoá ở offscreen, người nhận không cần biết gì về RMS). Phát
   // liên tục trong lúc ghi; popup đóng thì không ai nhận và notify() nuốt lỗi.
-  | { type: 'AUDIO_LEVEL'; mic: number; tab: number }
-  | { type: 'VIDEO_STALLED'; sessionId: string; gapMs: number; atMs: number }
-  | { type: 'VIDEO_RECOVERED'; sessionId: string; atMs: number }
+  | { type: "AUDIO_LEVEL"; mic: number; tab: number }
+  | { type: "VIDEO_STALLED"; sessionId: string; gapMs: number; atMs: number }
+  | { type: "VIDEO_RECOVERED"; sessionId: string; atMs: number }
   // offscreen → background → content script (content.ts renders the banner; the popup receives the same broadcast but ignores it)
-  | { type: 'STORAGE_ALERT'; low: boolean; reason?: 'LOW_DISK' | 'BACKLOG_HIGH' | 'OPFS_ERROR' }
+  | {
+      type: "STORAGE_ALERT";
+      low: boolean;
+      reason?: "LOW_DISK" | "BACKLOG_HIGH" | "OPFS_ERROR";
+    }
   // background → content script (via browser.tabs.sendMessage). `startedAtMs`
   // đi kèm để pill dựng được đồng hồ ngay, không phải hỏi ngược lại.
-  | { type: 'RECORDING_ACTIVE'; active: boolean; sessionId: string | null; startedAtMs: number | null }
+  | {
+      type: "RECORDING_ACTIVE";
+      active: boolean;
+      sessionId: string | null;
+      startedAtMs: number | null;
+    }
   // background → popup
-  | { type: 'GUARD_RESULT'; allowed: boolean; reason?: GuardFailureReason; detail?: string };
+  | {
+      type: "GUARD_RESULT";
+      allowed: boolean;
+      reason?: GuardFailureReason;
+      detail?: string;
+    };
 
-export type MessageOf<T extends Message['type']> = Extract<Message, { type: T }>;
+export type MessageOf<T extends Message["type"]> = Extract<
+  Message,
+  { type: T }
+>;
