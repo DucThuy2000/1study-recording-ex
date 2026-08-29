@@ -84,7 +84,8 @@ export default defineContentScript({
               muted: lastKnownMicMuted,
             } satisfies Message);
           } else {
-            pill.unmount();
+            // Xác nhận rồi mới biến mất, thay vì lặng lẽ mất hút.
+            pill.showStopped();
           }
           return;
         case "AUDIO_ALERT":

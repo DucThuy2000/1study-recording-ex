@@ -22,6 +22,8 @@ export const CONFIG = {
   LEVEL_CEILING_RMS: 0.25,
   EVENT_QUEUE_MAX_PENDING: 500,
   STARTING_ACK_TIMEOUT_MS: 15_000,
+  /** Pill giữ lời xác nhận "đã dừng ghi" bao lâu trước khi tự biến mất. */
+  STOPPED_NOTICE_MS: 6000,
   BADGE_TICK_ALARM_MINUTES: 1,
   BADGE_COLOR_RECORDING: "#F97316",
   BADGE_COLOR_DEGRADED: "#DC2626",
