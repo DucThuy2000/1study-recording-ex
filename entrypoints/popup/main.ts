@@ -12,11 +12,6 @@ const startBtn = document.querySelector<HTMLButtonElement>("#start")!;
 const stopBtn = document.querySelector<HTMLButtonElement>("#stop")!;
 const status = document.querySelector<HTMLDivElement>("#status")!;
 
-/**
- * MV3 destroys the popup the instant it loses focus — which happens the moment
- * the teacher clicks back into the Meet tab being recorded. So the popup keeps
- * no durable state of its own: it asks background for the truth on every open.
- */
 type PopupView =
   | { kind: "IDLE" }
   | { kind: "STARTING" }
@@ -116,9 +111,15 @@ function guardFailureText(
     case "MIC_PERMISSION_DENIED":
       return "Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.";
     case "LOW_DISK":
-      return message.detail ?? "Ổ đĩa sắp đầy — cần giải phóng dung lượng trước khi ghi.";
+      return (
+        message.detail ??
+        "Ổ đĩa sắp đầy — cần giải phóng dung lượng trước khi ghi."
+      );
     case "BACKLOG_HIGH":
-      return message.detail ?? "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại.";
+      return (
+        message.detail ??
+        "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại."
+      );
     case undefined:
       return "Could not start recording.";
     default:

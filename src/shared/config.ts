@@ -22,17 +22,38 @@ export const CONFIG = {
     highMinMemoryGb: 8,
   },
   TIERS: {
-    LOW: { width: 854, height: 480, fps: 12, bitrate: 600_000, codecs: ['vp8'] },
-    MID: { width: 1280, height: 720, fps: 15, bitrate: 1_200_000, codecs: ['vp9', 'vp8'] },
-    HIGH: { width: 1280, height: 720, fps: 24, bitrate: 1_800_000, codecs: ['vp9', 'vp8'] },
+    LOW: {
+      width: 854,
+      height: 480,
+      fps: 12,
+      bitrate: 600_000,
+      codecs: ["vp8"],
+    },
+    MID: {
+      width: 1280,
+      height: 720,
+      fps: 15,
+      bitrate: 1_200_000,
+      codecs: ["vp9", "vp8"],
+    },
+    HIGH: {
+      width: 1280,
+      height: 720,
+      fps: 24,
+      bitrate: 1_800_000,
+      codecs: ["vp9", "vp8"],
+    },
   },
 } as const;
 
 export type TierName = keyof typeof CONFIG.TIERS;
 
 export function pickMimeType(codecs: readonly string[]): string {
-  const candidates = [...codecs.map((c) => `video/webm;codecs=${c},opus`), 'video/webm'];
+  const candidates = [
+    ...codecs.map((c) => `video/webm;codecs=${c},opus`),
+    "video/webm",
+  ];
   const found = candidates.find((t) => MediaRecorder.isTypeSupported(t));
-  if (!found) throw new Error('No supported WebM codec found');
+  if (!found) throw new Error("No supported WebM codec found");
   return found;
 }

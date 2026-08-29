@@ -29,28 +29,28 @@ tab Meet → capture → chunk → OPFS (theo sessionId) → upload → Node.js 
 
 Ngoài luồng lõi trên, extension còn một **tầng độ tin cậy** — không phải tính năng phụ, mà là những thứ mà nếu thiếu sẽ lặp lại đúng các sự cố của hệ thống cũ:
 
-| Thành phần | Phân loại | Hoãn được? |
-|---|---|---|
-| Capture → OPFS → upload | Lõi | Không |
-| Xác thực với LMS | Bảo mật | Không |
-| Trộn mic + giám sát mức âm | Độ tin cậy | Không (R4, R5, R6) |
-| Giới hạn tốc độ upload | Độ tin cậy | Không (R2) |
-| Kiểm tra dung lượng | Độ tin cậy | Không (R9, R10) |
-| Tiền kiểm mic trước lớp | Độ tin cậy | Nên giữ |
-| Heartbeat về LMS | Giám sát | Có — hoãn được sang sau |
-| Phát hiện layout Tiled | Giám sát | Có — hoãn được sang sau |
+| Thành phần                 | Phân loại  | Hoãn được?              |
+| -------------------------- | ---------- | ----------------------- |
+| Capture → OPFS → upload    | Lõi        | Không                   |
+| Xác thực với LMS           | Bảo mật    | Không                   |
+| Trộn mic + giám sát mức âm | Độ tin cậy | Không (R4, R5, R6)      |
+| Giới hạn tốc độ upload     | Độ tin cậy | Không (R2)              |
+| Kiểm tra dung lượng        | Độ tin cậy | Không (R9, R10)         |
+| Tiền kiểm mic trước lớp    | Độ tin cậy | Nên giữ                 |
+| Heartbeat về LMS           | Giám sát   | Có — hoãn được sang sau |
+| Phát hiện layout Tiled     | Giám sát   | Có — hoãn được sang sau |
 
 ### Ràng buộc hệ thống
 
-| Hạng mục | Giá trị |
-|---|---|
-| Quy mô | ~800 giáo viên, ~500 lớp/ngày, cao điểm ~300 lớp đồng thời |
-| Thiết bị giáo viên | Máy cá nhân, cấu hình từ i3/4GB trở lên, Chrome |
-| Tài khoản giáo viên | Gmail cá nhân (KHÔNG thuộc Workspace của công ty) |
-| Mạng | Internet gia đình Việt Nam, upload không ổn định |
-| Định dạng đầu ra | **WebM** (VP8 + Opus) — KHÔNG cần convert MP4 |
-| Nơi xem lại | Website LMS của công ty |
-| Phát hành | Chrome Web Store, chế độ **Unlisted** |
+| Hạng mục            | Giá trị                                                    |
+| ------------------- | ---------------------------------------------------------- |
+| Quy mô              | ~800 giáo viên, ~500 lớp/ngày, cao điểm ~300 lớp đồng thời |
+| Thiết bị giáo viên  | Máy cá nhân, cấu hình từ i3/4GB trở lên, Chrome            |
+| Tài khoản giáo viên | Gmail cá nhân (KHÔNG thuộc Workspace của công ty)          |
+| Mạng                | Internet gia đình Việt Nam, upload không ổn định           |
+| Định dạng đầu ra    | **WebM** (VP8 + Opus) — KHÔNG cần convert MP4              |
+| Nơi xem lại         | Website LMS của công ty                                    |
+| Phát hành           | Chrome Web Store, chế độ **Unlisted**                      |
 
 ### Stack
 
@@ -67,49 +67,62 @@ Ngoài luồng lõi trên, extension còn một **tầng độ tin cậy** — k
 > Mỗi luật tương ứng với một sự cố có thật đã xảy ra trong production.
 
 ### R1. KHÔNG BAO GIỜ tích chunk trong RAM
+
 Mỗi blob từ `ondataavailable` phải được ghi thẳng xuống OPFS rồi giải phóng tham chiếu. Không có mảng `recordedChunks[]` nào tồn tại quá 1 giây.
-*Sự cố cũ: chiếm RAM client, máy yếu bị đơ.*
+_Sự cố cũ: chiếm RAM client, máy yếu bị đơ._
 
 ### R2. KHÔNG BAO GIỜ upload không giới hạn tốc độ trong lúc lớp đang diễn ra
+
 Upload phải qua token bucket. Lớp học luôn được ưu tiên băng thông hơn upload.
-*Sự cố cũ: giáo viên crash, đơ màn hình, không dạy tiếp được.*
+_Sự cố cũ: giáo viên crash, đơ màn hình, không dạy tiếp được._
 
 ### R3. KHÔNG BAO GIỜ xoá dữ liệu local trước khi server xác nhận file hoàn chỉnh đã ở trên S3
+
 HTTP 200 của một chunk KHÔNG phải là xác nhận. Chỉ xoá sau khi endpoint `/finalize` trả về `{ ok: true, s3Key, checksum }`.
 
 ### R4. KHÔNG BAO GIỜ giả định `tabCapture` có tiếng giáo viên
+
 Tab audio chỉ chứa tiếng **học sinh**. Micro giáo viên đi thẳng lên server Google, không vòng lại tab. Bắt buộc phải `getUserMedia({audio})` riêng và trộn.
-*Sự cố cũ: hàng loạt bản ghi không có tiếng giáo viên, phát hiện sau nhiều tuần.*
+_Sự cố cũ: hàng loạt bản ghi không có tiếng giáo viên, phát hiện sau nhiều tuần._
 
 ### R5. KHÔNG BAO GIỜ dùng micro thô
+
 Phải bật `echoCancellation`, `noiseSuppression`, `autoGainControl` ngay trong `getUserMedia`. Khử ồn của Meet chỉ áp lên luồng gửi đi, không áp lên micro local.
-*Sự cố cũ: học sinh nghe sạch nhưng bản ghi rất ồn, không nghe được giáo viên nói gì.*
+_Sự cố cũ: học sinh nghe sạch nhưng bản ghi rất ồn, không nghe được giáo viên nói gì._
 
 ### R6. KHÔNG BAO GIỜ để lỗi im lặng
+
 Mọi trạng thái bất thường (mic câm, tab audio câm, upload fail, OPFS lỗi, dung lượng thấp) phải: (a) hiện cảnh báo cho giáo viên trong tab, (b) gửi sự kiện về LMS.
-*Sự cố cũ: hỏng âm thầm, chỉ phát hiện khi có người xem lại.*
+_Sự cố cũ: hỏng âm thầm, chỉ phát hiện khi có người xem lại._
 
 ### R7. KHÔNG BAO GIỜ xử lý từng khung hình bằng JavaScript
+
 Không dùng canvas để vẽ/ghép/scale. `tabCapture` trả về luồng đã ghép sẵn ở tầng native; `MediaRecorder` mã hoá bằng native. JS chỉ chạm tới dữ liệu mỗi 5 giây.
 
 ### R8. KHÔNG BAO GIỜ phụ thuộc vào việc giáo viên nhớ làm gì đó
+
 Upload phải tự động khi mở Chrome. Không có nút "gửi bản ghi" nào mà giáo viên phải bấm.
-*Sự cố cũ: giáo viên không upload → IndexedDB đầy → trình duyệt xoá chunk cũ → mất recording.*
+_Sự cố cũ: giáo viên không upload → IndexedDB đầy → trình duyệt xoá chunk cũ → mất recording._
 
 ### R9. KHÔNG BAO GIỜ để tồn đọng phình vô hạn
+
 Trần cứng 5 GB. Vượt ngưỡng → chặn nhận lớp mới (chặn ở khâu tiền kiểm, xem R12).
 
 ### R10. KHÔNG BAO GIỜ để dung lượng trống chạm vùng nguy hiểm
+
 Có báo cáo lỗi Chromium chưa đóng: khi dung lượng còn ~0, dữ liệu OPFS bị xoá **dù đã có `unlimitedStorage`**, kèm `InvalidStateError` chỉ khắc phục bằng restart Chrome. Phải chủ động chặn trước khi tới đó (ngưỡng 3 GB).
 
 ### R11. KHÔNG BAO GIỜ hardcode codec, và KHÔNG BAO GIỜ dùng remote code
+
 - Codec phải qua **chuỗi fallback có feature detection** (`vp9,opus` → `vp8,opus` → `webm`) và **gắn với bậc thiết bị**: VP9 cho bậc Cao/Vừa, VP8 cho bậc Thấp. VP9 nén tốt hơn 30–50% (nhẹ băng thông) nhưng tốn CPU gấp 2–3 lần. Task 0.4 phải đo cả hai trên máy yếu để chốt ranh giới.
 - Manifest V3 **cấm** tải và thực thi code từ xa. Toàn bộ JS phải nằm trong package.
 
 ### R12. KHÔNG BAO GIỜ chặn hoặc làm gián đoạn lớp học đang diễn ra
+
 Mọi cơ chế chặn chỉ được đặt ở **khâu tiền kiểm trước lớp**. Khi lớp đã bắt đầu, lỗi ghi hình chỉ được cảnh báo và ghi log — tuyệt đối không dừng lớp, không hiện modal chặn màn hình, không đòi giáo viên xử lý ngay.
 
 ### R13. KHÔNG BAO GIỜ giả định luồng video vẫn chạy khi giáo viên chuyển tab
+
 `tabCapture` gắn với một tab cụ thể. Có bằng chứng mâu thuẫn về việc Chrome có tiếp tục vẽ khung hình cho tab ở nền hay không: nhóm chuẩn W3C nói tab đang bị capture được coi là "visible" và không bị bóp, nhưng nhà cung cấp dịch vụ ghi hình chuyên nghiệp báo cáo video đóng băng khi người dùng chuyển tab (mic thì vẫn chạy).
 
 Bắt buộc: (a) đo thực tế ở Task 0.5, (b) luôn có cơ chế **phát hiện đóng băng khung hình** và ghi nhận mốc thời gian bị mất, (c) khuyến nghị vận hành mở lớp ở **cửa sổ Chrome riêng** thay vì tab.
@@ -167,16 +180,15 @@ Không bao giờ đặt logic quan trọng vào `setInterval` của content scri
     "unlimitedStorage",
     "alarms"
   ],
-  "host_permissions": [
-    "https://meet.google.com/*",
-    "https://<lms-domain>/*"
-  ],
+  "host_permissions": ["https://meet.google.com/*", "https://<lms-domain>/*"],
   "background": { "service_worker": "background.js", "type": "module" },
-  "content_scripts": [{
-    "matches": ["https://meet.google.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }],
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": { "default_popup": "popup.html" }
 }
 ```
@@ -235,14 +247,14 @@ IDLE ──preflight ok──▶ READY ──start──▶ RECORDING ──stop
 
 ### 4.2. Các pattern áp dụng
 
-| Pattern | Áp dụng ở | Lý do |
-|---|---|---|
-| **Repository** | `ChunkRepository` bọc OPFS | Đổi sang IndexedDB sau này không phải sửa nơi khác; mock được khi test |
-| **Strategy** | `QualityTier` (Low/Mid/High) | Thêm bậc mới hoặc đổi codec không đụng vào recorder |
-| **State machine** | `SessionStateMachine` | Xem 4.1 |
-| **EventBus** | Giao tiếp nội bộ trong offscreen | Giám sát âm thanh, uploader, recorder không gọi thẳng nhau |
-| **Adapter** | `ChromeApi` bọc `chrome.*` | Test được bằng Vitest không cần Chrome thật |
-| **Result type** | Mọi thao tác I/O | Lỗi dự đoán được thì trả `Result<T, E>`, không `throw` |
+| Pattern           | Áp dụng ở                        | Lý do                                                                  |
+| ----------------- | -------------------------------- | ---------------------------------------------------------------------- |
+| **Repository**    | `ChunkRepository` bọc OPFS       | Đổi sang IndexedDB sau này không phải sửa nơi khác; mock được khi test |
+| **Strategy**      | `QualityTier` (Low/Mid/High)     | Thêm bậc mới hoặc đổi codec không đụng vào recorder                    |
+| **State machine** | `SessionStateMachine`            | Xem 4.1                                                                |
+| **EventBus**      | Giao tiếp nội bộ trong offscreen | Giám sát âm thanh, uploader, recorder không gọi thẳng nhau             |
+| **Adapter**       | `ChromeApi` bọc `chrome.*`       | Test được bằng Vitest không cần Chrome thật                            |
+| **Result type**   | Mọi thao tác I/O                 | Lỗi dự đoán được thì trả `Result<T, E>`, không `throw`                 |
 
 ### 4.3. Hợp đồng message có kiểu
 
@@ -251,13 +263,31 @@ Ba context (service worker / offscreen / content script) chỉ nói chuyện qua
 ```ts
 // shared/messages.ts
 export type Message =
-  | { type: 'START_RECORDING'; streamId: string; sessionId: string; tier: TierName }
-  | { type: 'STOP_RECORDING'; sessionId: string }
-  | { type: 'RECORDING_STATE'; sessionId: string; state: SessionState; elapsedMs: number }
-  | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }
-  | { type: 'UPLOAD_PROGRESS'; sessionId: string; uploaded: number; total: number };
+  | {
+      type: "START_RECORDING";
+      streamId: string;
+      sessionId: string;
+      tier: TierName;
+    }
+  | { type: "STOP_RECORDING"; sessionId: string }
+  | {
+      type: "RECORDING_STATE";
+      sessionId: string;
+      state: SessionState;
+      elapsedMs: number;
+    }
+  | { type: "AUDIO_ALERT"; source: "mic" | "tab"; silent: boolean }
+  | {
+      type: "UPLOAD_PROGRESS";
+      sessionId: string;
+      uploaded: number;
+      total: number;
+    };
 
-export type MessageOf<T extends Message['type']> = Extract<Message, { type: T }>;
+export type MessageOf<T extends Message["type"]> = Extract<
+  Message,
+  { type: T }
+>;
 ```
 
 Không dùng `any`, không dùng chuỗi rời rạc. `switch` trên `type` phải exhaustive (bật `noImplicitReturns`, dùng `assertNever`).
@@ -310,6 +340,7 @@ src/
 **Việc:** Scaffold MV3 + TypeScript + Vite. Service worker log được. Content script chạy trên `meet.google.com`. Popup rỗng.
 
 **Test:**
+
 1. `npm run build` → thư mục `dist/`
 2. `chrome://extensions` → Developer mode → Load unpacked
 3. Mở `meet.google.com` → console tab hiện log của content script
@@ -327,30 +358,38 @@ src/
 
 ```ts
 // background.ts
-const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-await chrome.offscreen.createDocument({
-  url: 'offscreen.html',
-  reasons: ['USER_MEDIA'],
-  justification: 'Recording class session'
+const streamId = await chrome.tabCapture.getMediaStreamId({
+  targetTabId: tabId,
 });
-chrome.runtime.sendMessage({ type: 'START', streamId });
+await chrome.offscreen.createDocument({
+  url: "offscreen.html",
+  reasons: ["USER_MEDIA"],
+  justification: "Recording class session",
+});
+chrome.runtime.sendMessage({ type: "START", streamId });
 ```
 
 ```ts
 // offscreen.ts
 const stream = await navigator.mediaDevices.getUserMedia({
-  audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
-  video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } }
+  audio: {
+    mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId },
+  },
+  video: {
+    mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId },
+  },
 } as any);
 ```
 
 **Test:**
+
 1. Vào một phòng Meet có ≥2 người, bật camera cả hai
 2. Đặt layout **Tiled**
 3. Ghi 30 giây → mở file
 
 **Cases:**
-- [ ] Video có đủ **lưới camera nhiều người**, không phải chỉ người đang nói ← *mục tiêu cốt lõi của cả dự án*
+
+- [ ] Video có đủ **lưới camera nhiều người**, không phải chỉ người đang nói ← _mục tiêu cốt lõi của cả dự án_
 - [ ] Có tiếng học sinh
 - [ ] **Giáo viên vẫn nghe được học sinh trong lúc ghi** (nếu không → thiếu bước nối `ctx.destination`)
 - [ ] Đổi layout sang Speaker view → bản ghi đổi theo (xác nhận ghi đúng khung nhìn)
@@ -369,8 +408,8 @@ const micStream = await navigator.mediaDevices.getUserMedia({
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
-    channelCount: 1
-  }
+    channelCount: 1,
+  },
 });
 
 const ctx = new AudioContext();
@@ -378,22 +417,25 @@ const dest = ctx.createMediaStreamDestination();
 const tabSrc = ctx.createMediaStreamSource(tabStream);
 const micSrc = ctx.createMediaStreamSource(micStream);
 
-const tabGain = ctx.createGain(); tabGain.gain.value = 1.0;
-const micGain = ctx.createGain(); micGain.gain.value = 1.0;
+const tabGain = ctx.createGain();
+tabGain.gain.value = 1.0;
+const micGain = ctx.createGain();
+micGain.gain.value = 1.0;
 
 tabSrc.connect(tabGain).connect(dest);
 micSrc.connect(micGain).connect(dest);
-tabSrc.connect(ctx.destination);          // BẮT BUỘC (R4/R5)
+tabSrc.connect(ctx.destination); // BẮT BUỘC (R4/R5)
 
 const mixed = new MediaStream([
   tabStream.getVideoTracks()[0],
-  dest.stream.getAudioTracks()[0]
+  dest.stream.getAudioTracks()[0],
 ]);
 ```
 
 Giám sát: `AnalyserNode` trên từng luồng, tính RMS mỗi 10s. Câm liên tục 60s → cảnh báo + gửi event.
 
 **Test:**
+
 1. Giáo viên nói, học sinh im → nghe rõ giáo viên trong bản ghi
 2. Học sinh nói, giáo viên im → nghe rõ học sinh
 3. Cả hai nói cùng lúc → không méo, không dội đôi
@@ -402,6 +444,7 @@ Giám sát: `AnalyserNode` trên từng luồng, tính RMS mỗi 10s. Câm liên
 6. Bật quạt/điều hoà cạnh mic → so sánh có/không `noiseSuppression`
 
 **Cases:**
+
 - [ ] Tiếng giáo viên có trong bản ghi (R4)
 - [ ] Tiếng học sinh không bị lặp hai lần
 - [ ] Cảnh báo mic câm hoạt động (R6)
@@ -421,6 +464,7 @@ Giám sát: `AnalyserNode` trên từng luồng, tính RMS mỗi 10s. Câm liên
 **Test:** Chrome Task Manager (Shift+Esc) + Task Manager hệ điều hành, ghi số liệu mỗi 10 phút.
 
 **Cases:**
+
 - [ ] Không crash sau 60 phút
 - [ ] RAM offscreen **ổn định** (không tăng tuyến tính) — nếu tăng dần thì R1 đang bị vi phạm
 - [ ] CPU của Chrome tăng thêm < 25% so với chỉ chạy Meet
@@ -430,20 +474,20 @@ Giám sát: `AnalyserNode` trên từng luồng, tính RMS mỗi 10s. Câm liên
 
 **Ngưỡng chấp nhận:**
 
-| Bậc | Điều kiện máy | Cấu hình | Codec |
-|---|---|---|---|
-| Thấp | ≤4 luồng hoặc ≤4 GB | 854×480, 12fps, 600 kbps | VP8 + Opus |
-| Vừa | mặc định | 1280×720, 15fps, 1.2 Mbps | VP9 + Opus |
-| Cao | ≥8 luồng và ≥8 GB | 1280×720, 24fps, 1.8 Mbps | VP9 + Opus |
+| Bậc  | Điều kiện máy       | Cấu hình                  | Codec      |
+| ---- | ------------------- | ------------------------- | ---------- |
+| Thấp | ≤4 luồng hoặc ≤4 GB | 854×480, 12fps, 600 kbps  | VP8 + Opus |
+| Vừa  | mặc định            | 1280×720, 15fps, 1.2 Mbps | VP9 + Opus |
+| Cao  | ≥8 luồng và ≥8 GB   | 1280×720, 24fps, 1.8 Mbps | VP9 + Opus |
 
 **Thí nghiệm codec (bắt buộc, chạy trong task này):** trên **cùng một máy bậc Thấp**, ghi 20 phút với VP9 rồi 20 phút với VP8, cùng độ phân giải và fps. Ghi lại:
 
-| | VP9 | VP8 |
-|---|---|---|
-| CPU trung bình của Chrome | | |
-| Khung hình rớt | | |
-| Kích thước file | | |
-| Điểm chất lượng cuộc gọi (người đầu kia chấm 1–5) | | |
+|                                                   | VP9 | VP8 |
+| ------------------------------------------------- | --- | --- |
+| CPU trung bình của Chrome                         |     |     |
+| Khung hình rớt                                    |     |     |
+| Kích thước file                                   |     |     |
+| Điểm chất lượng cuộc gọi (người đầu kia chấm 1–5) |     |     |
 
 Kết quả quyết định ranh giới bậc trong `config.ts`. Nếu VP9 trên máy yếu làm rớt khung hình hoặc tụt chất lượng cuộc gọi, hạ bậc Vừa xuống VP8.
 
@@ -468,6 +512,7 @@ Bấm icon extension
 Thêm `chrome.action.disable(tabId)` / `enable(tabId)` theo `chrome.tabs.onUpdated` và `onActivated` để icon xám trên tab không phải Meet.
 
 **Cases:**
+
 - [ ] Đang ở tab YouTube → bấm icon → không ghi được, hiện hướng dẫn rõ ràng
 - [ ] Đang ở tab Meet nhưng sai mã phòng → cảnh báo trước khi ghi
 - [ ] Đang ở đúng phòng → ghi bình thường
@@ -486,12 +531,14 @@ Thêm `chrome.action.disable(tabId)` / `enable(tabId)` theo `chrome.tabs.onUpdat
 Cài `requestVideoFrameCallback` trên một `<video>` ẩn nhận stream, đếm khung hình theo giây, ghi log timestamp.
 
 **Test:**
+
 1. Bắt đầu ghi ở tab Meet có ≥2 camera bật
 2. Chuyển sang tab khác **2 phút**, làm việc bình thường ở đó
 3. Quay lại tab Meet, ghi thêm 1 phút, dừng
 4. Xem lại video + đối chiếu log đếm khung hình
 
 **Cases:**
+
 - [ ] Video trong 2 phút đó có đóng băng không? Ghi rõ CÓ / KHÔNG
 - [ ] Tiếng học sinh (tab audio) có mất không?
 - [ ] Tiếng giáo viên (mic) có tiếp tục không? (dự kiến: có)
@@ -502,15 +549,16 @@ Cài `requestVideoFrameCallback` trên một `<video>` ẩn nhận stream, đế
 
 **Kết quả quyết định thiết kế:**
 
-| Kết quả | Hành động |
-|---|---|
-| Không đóng băng ở mọi kịch bản | Chỉ cần cơ chế phát hiện làm lưới an toàn |
+| Kết quả                                                  | Hành động                                                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Không đóng băng ở mọi kịch bản                           | Chỉ cần cơ chế phát hiện làm lưới an toàn                                                              |
 | Đóng băng khi chuyển tab, KHÔNG đóng băng ở cửa sổ riêng | **Bắt buộc quy trình: lớp học mở ở cửa sổ Chrome riêng.** Extension tự mở bằng `chrome.windows.create` |
-| Đóng băng ở mọi kịch bản | Vấn đề nghiêm trọng — cân nhắc `getDisplayMedia` (ghi cả màn hình) và báo cáo lại trước khi đi tiếp |
+| Đóng băng ở mọi kịch bản                                 | Vấn đề nghiêm trọng — cân nhắc `getDisplayMedia` (ghi cả màn hình) và báo cáo lại trước khi đi tiếp    |
 
 **Bắt buộc triển khai bất kể kết quả:**
+
 - Phát hiện đóng băng: không có khung hình mới trong 3 giây → event `VIDEO_STALLED`, ghi mốc thời gian vào metadata session
-- `visibilitychange`: tab bị ẩn khi đang ghi → khi quay lại hiện thông báo *"Bạn đã rời tab lớp học X phút — đoạn đó có thể không được ghi hình"*
+- `visibilitychange`: tab bị ẩn khi đang ghi → khi quay lại hiện thông báo _"Bạn đã rời tab lớp học X phút — đoạn đó có thể không được ghi hình"_
 
 > Nếu có mất đoạn, ít nhất bạn **biết chính xác đoạn nào mất** thay vì phát hiện khi phụ huynh khiếu nại (R6).
 
@@ -542,6 +590,7 @@ chrome.storage.local: {
 **Test:** ghi 10 phút → kiểm tra file trong DevTools → Application → Storage.
 
 **Cases:**
+
 - [ ] Số chunk khớp `totalChunks` trong sổ
 - [ ] Kích thước cộng dồn khớp
 - [ ] Ghi được khi có 2 session tồn tại song song
@@ -565,6 +614,7 @@ if (backlogBytes > 5 * 1024 ** 3) → chặn ở tiền kiểm + event BACKLOG_H
 **Test:** dùng máy ảo hoặc file rác để ép ổ gần đầy.
 
 **Cases:**
+
 - [ ] Còn < 3 GB → **chặn trước khi lớp bắt đầu**, hiện lý do rõ ràng
 - [ ] Tồn đọng > 5 GB → chặn tương tự
 - [ ] Đã đang ghi mà ổ tụt xuống dưới ngưỡng → **CHỈ cảnh báo, KHÔNG dừng ghi** (R12)
@@ -593,6 +643,7 @@ Khi khởi động: đối chiếu sổ metadata với file thật trong OPFS. L
 **Test:** khó tái hiện tự nhiên → mock lỗi bằng cách ném exception giả trong writer.
 
 **Cases:**
+
 - [ ] `InvalidStateError` không làm sập offscreen
 - [ ] Lớp vẫn tiếp tục ghi (buffer RAM) sau khi OPFS hỏng (R12)
 - [ ] Buffer RAM có trần cứng, không phình vô hạn
@@ -608,11 +659,13 @@ Khi khởi động: đối chiếu sổ metadata với file thật trong OPFS. L
 **Việc:** `chrome.runtime.onStartup` → quét session dở dang → tiếp tục.
 
 **Test:**
+
 1. Ghi 5 phút → kill Chrome bằng Task Manager
 2. Mở lại Chrome
 3. Không cần thao tác gì
 
 **Cases:**
+
 - [ ] Chunk đã ghi còn nguyên
 - [ ] Session được đánh dấu `INTERRUPTED`
 - [ ] Tự động chuyển sang upload (sau Phase 2)
@@ -631,6 +684,7 @@ Khi khởi động: đối chiếu sổ metadata với file thật trong OPFS. L
 **Test:** ghi 10 phút → xem chunk lên server → gọi finalize → file hoàn chỉnh trên S3.
 
 **Cases:**
+
 - [ ] Chunk lên **đúng thứ tự index**
 - [ ] Upload lại chunk đã có → server idempotent, không nhân đôi
 - [ ] `finalize` kiểm tra đủ số chunk trước khi ghép
@@ -659,6 +713,7 @@ Lỗi: backoff 2s → 4s → 8s → ... trần 60s
 **Test:** dùng Chrome DevTools Network throttling + `tc` trên Linux để mô phỏng mạng kém.
 
 **Cases:**
+
 - [ ] Mạng tốt (50 Mbps): tồn đọng ~0 khi lớp kết thúc
 - [ ] Mạng vừa (10 Mbps up): lớp mượt, tồn đọng < 200 MB
 - [ ] **Mạng kém (2 Mbps up): chất lượng cuộc gọi Meet KHÔNG giảm** ← case quan trọng nhất
@@ -681,14 +736,16 @@ Content script phát hiện tab đóng / lớp kết thúc
    → xong → xoá local → đóng offscreen
 ```
 
-Trước khi đóng tab, content script hiện thông báo: *"Còn X MB chưa tải lên, vui lòng giữ Chrome mở thêm ~Y phút."* (thông báo, không chặn — R12)
+Trước khi đóng tab, content script hiện thông báo: _"Còn X MB chưa tải lên, vui lòng giữ Chrome mở thêm ~Y phút."_ (thông báo, không chặn — R12)
 
 **Test:**
+
 1. Ghi 20 phút
 2. Đóng tab Meet ngay
 3. Theo dõi badge
 
 **Cases:**
+
 - [ ] Upload tiếp tục sau khi tab đóng
 - [ ] Tốc độ bung lên full sau khi lớp kết thúc
 - [ ] Badge phản ánh đúng tiến độ
@@ -702,11 +759,13 @@ Trước khi đóng tab, content script hiện thông báo: *"Còn X MB chưa t�
 **Việc:** Mở Chrome → tự tiếp tục upload, giáo viên không phải bấm gì.
 
 **Test:**
+
 1. Ghi 20 phút → đóng tab → **tắt hẳn Chrome** khi mới upload 30%
 2. Đợi 10 phút
 3. Mở lại Chrome, không mở Meet
 
 **Cases:**
+
 - [ ] Upload tự chạy trong vòng 30 giây sau khi Chrome khởi động
 - [ ] Tiếp tục từ chunk dở dang, không gửi lại từ đầu
 - [ ] Nhiều session dở dang → xử lý tuần tự, cũ trước
@@ -722,10 +781,11 @@ Trước khi đóng tab, content script hiện thông báo: *"Còn X MB chưa t�
 **Việc:** Extension vô dụng nếu không có token hợp lệ. Đây là mô hình bảo mật thật — chế độ Unlisted trên store KHÔNG phải cơ chế bảo mật.
 
 **Cases:**
+
 - [ ] Chưa đăng nhập → không ghi được, hiện màn hình đăng nhập
 - [ ] Token hết hạn giữa buổi → **vẫn ghi tiếp**, refresh ngầm (R12)
 - [ ] Tài khoản bị khoá → chặn ở lần tiền kiểm tiếp theo, không cắt lớp đang chạy
-- [ ] Token lưu trong `chrome.storage.local`, không ở `localStorage`
+- [ ] Token lưu trong `browser.storage.local`, không ở `localStorage`
 
 ---
 
@@ -734,6 +794,7 @@ Trước khi đóng tab, content script hiện thông báo: *"Còn X MB chưa t�
 **Việc:** `chrome.alarms` mỗi 30 giây gửi `{ teacherId, sessionId, state, backlogBytes, chunksUploaded }`.
 
 **Cases:**
+
 - [ ] Heartbeat đều đặn khi đang ghi
 - [ ] Service worker bị Chrome giết → `chrome.alarms` vẫn đánh thức đúng hạn
 - [ ] Mất mạng → xếp hàng, gửi bù khi có mạng (không cần đủ, chỉ cần cái mới nhất)
@@ -754,6 +815,7 @@ Trước khi đóng tab, content script hiện thông báo: *"Còn X MB chưa t�
 ```
 
 **Cases:**
+
 - [ ] Mic hỏng → phát hiện **trước** lớp, không phải sau
 - [ ] Chọn nhầm thiết bị mic → hiện danh sách để đổi
 - [ ] Thiếu điều kiện nào → nói rõ điều kiện đó và cách khắc phục
@@ -775,6 +837,7 @@ conference.ended  +  không có bản ghi hoàn chỉnh sau 2 giờ
 ```
 
 **Cases:**
+
 - [ ] Lớp có bản ghi đủ → không cảnh báo
 - [ ] Lớp thiếu bản ghi → cảnh báo đúng hạn
 - [ ] Giáo viên iPad (không dùng extension) → luồng riêng, không cảnh báo nhầm
@@ -797,11 +860,13 @@ conference.ended  +  không có bản ghi hoàn chỉnh sau 2 giờ
 Song song, badge trên icon extension (`chrome.action.setBadgeText`) — **tối đa 4 ký tự**: `45m`, `1h12`, `62%`.
 
 **Cài đặt:**
+
 - Đồng hồ tính từ `session.startedAt` **lưu trong `chrome.storage.local`**, KHÔNG phải từ lúc content script mount
 - Cập nhật mỗi giây bằng một `setInterval` duy nhất, chỉ ghi vào text node (không re-render cây DOM)
 - Màu theo trạng thái: đỏ = đang ghi, vàng = DEGRADED, xanh = đang tải lên
 
 **Cases:**
+
 - [ ] Badge hiện rõ nhưng không che nút điều khiển Meet
 - [ ] **Reload tab giữa buổi → đồng hồ tiếp tục đúng, không nhảy về 0** ← lỗi hay gặp nhất ở task này
 - [ ] Ghi > 60 phút → hiển thị đúng dạng `1:05:30`, icon badge thành `1h05`
@@ -818,6 +883,7 @@ Song song, badge trên icon extension (`chrome.action.setBadgeText`) — **tối
 **Việc:** Nếu giáo viên để Speaker view, bản ghi sẽ chỉ có một người — đúng vấn đề ta đang cố tránh. Content script phát hiện và nhắc.
 
 **Cases:**
+
 - [ ] Speaker view → hiện nhắc "Chuyển sang chế độ Tiled để ghi đủ học sinh"
 - [ ] Chuyển sang Tiled → nhắc biến mất
 - [ ] **Selector DOM không khớp (Google đổi giao diện) → gửi event LAYOUT_WRONG, KHÔNG chặn ghi hình**
@@ -841,33 +907,34 @@ Song song, badge trên icon extension (`chrome.action.setBadgeText`) — **tối
 
 Test trên **máy thật của giáo viên**, không phải máy dev.
 
-| Cấu hình | Kết quả cần đạt |
-|---|---|
-| i3 / 4GB / HDD | Chạy được bậc Thấp, không crash |
-| i5 / 8GB / SSD | Bậc Vừa mượt |
-| Máy có phần mềm diệt virus nặng | Không xung đột |
+| Cấu hình                          | Kết quả cần đạt                      |
+| --------------------------------- | ------------------------------------ |
+| i3 / 4GB / HDD                    | Chạy được bậc Thấp, không crash      |
+| i5 / 8GB / SSD                    | Bậc Vừa mượt                         |
+| Máy có phần mềm diệt virus nặng   | Không xung đột                       |
 | Màn hình ngoài / độ phân giải cao | Không vỡ layout, không phình bitrate |
-| Chrome đang mở 20 tab | Vẫn ghi ổn định |
+| Chrome đang mở 20 tab             | Vẫn ghi ổn định                      |
 
 ---
 
 ### Task 5.2 — Kiểm thử hỗn loạn
 
-| Kịch bản | Kỳ vọng |
-|---|---|
-| Rút mạng 10 phút giữa lớp | Ghi tiếp, upload tạm dừng rồi tiếp tục |
-| Server upload sập 30 phút | Tồn đọng tăng, không mất dữ liệu |
-| Máy sleep giữa lớp | Phục hồi hoặc chốt file sạch, không hỏng |
-| Đóng tab đột ngột | Upload tiếp tục (Task 2.3) |
-| Ổ đầy giữa lớp | Cảnh báo, không dừng lớp |
-| Hai tab Meet cùng lúc | Bám đúng tab của lớp đang dạy |
-| Lớp 3 tiếng liên tục | Không rò rỉ RAM, file không hỏng |
+| Kịch bản                  | Kỳ vọng                                  |
+| ------------------------- | ---------------------------------------- |
+| Rút mạng 10 phút giữa lớp | Ghi tiếp, upload tạm dừng rồi tiếp tục   |
+| Server upload sập 30 phút | Tồn đọng tăng, không mất dữ liệu         |
+| Máy sleep giữa lớp        | Phục hồi hoặc chốt file sạch, không hỏng |
+| Đóng tab đột ngột         | Upload tiếp tục (Task 2.3)               |
+| Ổ đầy giữa lớp            | Cảnh báo, không dừng lớp                 |
+| Hai tab Meet cùng lúc     | Bám đúng tab của lớp đang dạy            |
+| Lớp 3 tiếng liên tục      | Không rò rỉ RAM, file không hỏng         |
 
 ---
 
 ### Task 5.3 — Chuẩn bị phát hành
 
 **Việc:**
+
 - Trang **privacy policy thật** trên domain công ty (không dùng Google Docs)
 - Giải trình từng quyền trong bản khai của Chrome Web Store
 - Khai báo sử dụng dữ liệu + tuân thủ Limited Use
@@ -877,6 +944,7 @@ Test trên **máy thật của giáo viên**, không phải máy dev.
 **Điểm dễ bị hỏi khi duyệt:** quyền `tabCapture` bị soi kỹ. Mô tả phải nêu rõ một mục đích duy nhất: ghi hình buổi học cho nền tảng nội bộ của công ty. Không nhồi thêm tính năng phụ.
 
 **Cases:**
+
 - [ ] Không có remote code (R11)
 - [ ] Mọi quyền đều có lý do chính đáng
 - [ ] Privacy policy nêu rõ: ghi gì, lưu ở đâu, giữ bao lâu, ai xem được
@@ -889,6 +957,7 @@ Test trên **máy thật của giáo viên**, không phải máy dev.
 Triển khai theo bậc: **5 giáo viên → 30 → 100 → toàn bộ**. Mỗi bậc chạy tối thiểu một tuần.
 
 **Chỉ số theo dõi:**
+
 - Tỉ lệ lớp có bản ghi hoàn chỉnh (mục tiêu > 98%)
 - Thời gian trung bình từ kết thúc lớp tới file lên S3
 - Số sự kiện `MIC_SILENT` / `UPLOAD_STALLED` / `LOW_DISK`
@@ -899,13 +968,13 @@ Triển khai theo bậc: **5 giáo viên → 30 → 100 → toàn bộ**. Mỗi 
 
 ## Phụ lục A — Việc song song, không thuộc phần code
 
-| Hạng mục | Ghi chú |
-|---|---|
-| **Pháp lý** | Quay hình trẻ em và phân phối cho phụ huynh — cần luật sư xem trước khi launch. Tham chiếu Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân. Cần: đồng ý của phụ huynh, mục đích giới hạn, thời hạn lưu trữ, quyền yêu cầu xoá, kiểm soát ai xem được bản ghi nào |
-| **Nhóm giáo viên iPad** | Quy trình riêng: tự ghi màn hình + upload qua LMS, có hạn nộp và chế tài. **Cần test trước:** ghi màn hình trên iPad có bắt được tiếng học sinh không |
-| **Chính sách tai nghe** | Yêu cầu giáo viên dùng tai nghe có mic — biện pháp rẻ và hiệu quả nhất cho chất lượng âm thanh |
-| **Đào tạo** | Hướng dẫn cài extension, đặt layout Tiled, hiểu các cảnh báo |
-| **Dự phòng** | Giữ recording gốc của Google Meet chạy song song. Miễn phí, và là lưới an toàn nếu extension bị Chrome Web Store gỡ hoặc lỗi diện rộng |
+| Hạng mục                | Ghi chú                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Pháp lý**             | Quay hình trẻ em và phân phối cho phụ huynh — cần luật sư xem trước khi launch. Tham chiếu Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân. Cần: đồng ý của phụ huynh, mục đích giới hạn, thời hạn lưu trữ, quyền yêu cầu xoá, kiểm soát ai xem được bản ghi nào |
+| **Nhóm giáo viên iPad** | Quy trình riêng: tự ghi màn hình + upload qua LMS, có hạn nộp và chế tài. **Cần test trước:** ghi màn hình trên iPad có bắt được tiếng học sinh không                                                                                                              |
+| **Chính sách tai nghe** | Yêu cầu giáo viên dùng tai nghe có mic — biện pháp rẻ và hiệu quả nhất cho chất lượng âm thanh                                                                                                                                                                     |
+| **Đào tạo**             | Hướng dẫn cài extension, đặt layout Tiled, hiểu các cảnh báo                                                                                                                                                                                                       |
+| **Dự phòng**            | Giữ recording gốc của Google Meet chạy song song. Miễn phí, và là lưới an toàn nếu extension bị Chrome Web Store gỡ hoặc lỗi diện rộng                                                                                                                             |
 
 ## Phụ lục B — Tóm tắt hằng số cấu hình
 
@@ -921,20 +990,38 @@ export const CONFIG = {
   MEMORY_BUFFER_MAX_BYTES: 200 * 1024 ** 2,
   AUDIO_BITRATE: 64_000,
   TIERS: {
-    LOW:  { width: 854,  height: 480, fps: 12, bitrate: 600_000,   codecs: ['vp8'] },
-    MID:  { width: 1280, height: 720, fps: 15, bitrate: 1_200_000, codecs: ['vp9', 'vp8'] },
-    HIGH: { width: 1280, height: 720, fps: 24, bitrate: 1_800_000, codecs: ['vp9', 'vp8'] }
-  }
+    LOW: {
+      width: 854,
+      height: 480,
+      fps: 12,
+      bitrate: 600_000,
+      codecs: ["vp8"],
+    },
+    MID: {
+      width: 1280,
+      height: 720,
+      fps: 15,
+      bitrate: 1_200_000,
+      codecs: ["vp9", "vp8"],
+    },
+    HIGH: {
+      width: 1280,
+      height: 720,
+      fps: 24,
+      bitrate: 1_800_000,
+      codecs: ["vp9", "vp8"],
+    },
+  },
 };
 
 // Chuỗi fallback có feature detection (R11)
 export function pickMimeType(codecs: string[]): string {
   const candidates = [
-    ...codecs.map(c => `video/webm;codecs=${c},opus`),
-    'video/webm'
+    ...codecs.map((c) => `video/webm;codecs=${c},opus`),
+    "video/webm",
   ];
-  const found = candidates.find(t => MediaRecorder.isTypeSupported(t));
-  if (!found) throw new Error('Không có codec WebM nào được hỗ trợ');
+  const found = candidates.find((t) => MediaRecorder.isTypeSupported(t));
+  if (!found) throw new Error("Không có codec WebM nào được hỗ trợ");
   return found;
 }
 ```

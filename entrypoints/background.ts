@@ -33,15 +33,6 @@ const tabCapture = new ChromeTabCaptureApi();
 const offscreen = new ChromeOffscreenApi();
 const store = new ChromeStorageAdapter();
 const sessionLedger = new SessionLedger(store);
-// A second EventReporter instance, separate from offscreen's own — both
-// read-modify-write the same "pendingEvents" storage key, and each only
-// serializes its own writes (see EventReporter's own doc comment). Safe
-// today only because this instance's one call site — handleStart's
-// preflight storage-guard refusal — runs exclusively when no session is
-// actively recording, i.e. no offscreen document is alive running the
-// periodic storage check that would otherwise write to the same key
-// concurrently. If this instance is ever used while a session is actively
-// recording, that invariant breaks.
 const backgroundEventReporter = new EventReporter(
   store,
   new EventBus<{ event: RecordingEvent }>(),
@@ -85,18 +76,6 @@ async function writeLastError(error: string | null): Promise<void> {
   await store.set(LAST_ERROR_KEY, error);
 }
 
-/** Broadcast to extension pages (popup, offscreen). Best-effort: nobody may be listening. */
-async function broadcast(message: Message): Promise<void> {
-  try {
-    await browser.runtime.sendMessage(message);
-  } catch (error) {
-    logger.debug("no extension page received message", {
-      type: message.type,
-      error: describeError(error),
-    });
-  }
-}
-
 /**
  * The only way to reach a content script — `runtime.sendMessage` never does.
  * The tab may have been closed mid-session, so this must not throw.
@@ -118,9 +97,9 @@ async function refreshActionState(
   url: string | undefined,
 ): Promise<void> {
   if (url && isMeetUrl(url)) {
-    await chrome.action.enable(tabId);
+    await browser.action.enable(tabId);
   } else {
-    await chrome.action.disable(tabId);
+    await browser.action.disable(tabId);
   }
 }
 
@@ -129,7 +108,12 @@ async function refuseStart(
   detail?: string,
 ): Promise<void> {
   logger.warn("start refused", { reason, detail });
-  await broadcast({ type: "GUARD_RESULT", allowed: false, reason, detail });
+  await browser.runtime.sendMessage({
+    type: "GUARD_RESULT",
+    allowed: false,
+    reason,
+    detail,
+  });
 }
 
 /**
@@ -293,7 +277,11 @@ async function handleStart(
       ["USER_MEDIA"],
       "Recording the class session tab for teaching quality review.",
     );
-    await broadcast({ type: "RECORDING_STARTED", sessionId, streamId });
+    await browser.runtime.sendMessage({
+      type: "RECORDING_STARTED",
+      sessionId,
+      streamId,
+    });
     logger.info("start dispatched", { sessionId, tabId: message.tabId });
   } catch (error) {
     const detail = describeError(error);
@@ -325,7 +313,10 @@ async function handleStop(message: MessageOf<"STOP_RECORDING">): Promise<void> {
     });
   // The single relay into the offscreen document, from the single place that
   // ever relays it.
-  await broadcast({ type: "RECORDING_STOP", sessionId: message.sessionId });
+  await browser.runtime.sendMessage({
+    type: "RECORDING_STOP",
+    sessionId: message.sessionId,
+  });
 }
 
 async function handleRecordingState(
@@ -406,7 +397,7 @@ async function handleMicMuteChanged(
 ): Promise<void> {
   const active = await readActiveSession();
   if (!active || active.tabId !== senderTabId) return;
-  await broadcast({
+  await browser.runtime.sendMessage({
     type: "SET_MIC_MUTED",
     muted: message.muted,
   } satisfies Message);

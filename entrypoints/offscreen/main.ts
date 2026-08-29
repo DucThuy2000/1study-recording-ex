@@ -25,7 +25,10 @@ import { assertNever } from "@/src/core/assert";
 import { isErr, type Result } from "@/src/core/result";
 import type { RecordingEvent } from "@/src/core/event-reporter";
 import { SessionLedger } from "@/src/core/session-ledger";
-import { evaluateStorageGuard, sumBacklogBytes } from "@/src/core/storage-guard";
+import {
+  evaluateStorageGuard,
+  sumBacklogBytes,
+} from "@/src/core/storage-guard";
 
 const logger = createLogger("offscreen");
 const bus = new EventBus<{ event: RecordingEvent }>();
@@ -147,7 +150,8 @@ function releaseSessionHandles(): void {
   micMonitor?.stop();
   tabMonitor?.stop();
   stopFrameMonitor?.();
-  if (storageCheckIntervalId !== undefined) clearInterval(storageCheckIntervalId);
+  if (storageCheckIntervalId !== undefined)
+    clearInterval(storageCheckIntervalId);
   storageCheckIntervalId = undefined;
   storageAlerting = false;
   activeMix?.micSource.mediaStream.getTracks().forEach((track) => track.stop());
@@ -216,12 +220,15 @@ async function startRecording(
     logTransition(await activeStateMachine.transition("RECORDING", "start"));
 
     activeRecorder = new SessionRecorder(sessionId, mixedStream, tier, {
-      onChunkWritten: (_index, bytes) => sessionLedger.recordChunk(sessionId, bytes),
+      onChunkWritten: (_index, bytes) =>
+        sessionLedger.recordChunk(sessionId, bytes),
       onStorageDegraded: (error) => {
         const machine = activeStateMachine;
         if (machine) {
           run(
-            machine.transition("DEGRADED", "opfs failed").then((result) => logTransition(result)),
+            machine
+              .transition("DEGRADED", "opfs failed")
+              .then((result) => logTransition(result)),
             "storage degraded transition",
           );
         }
@@ -229,7 +236,10 @@ async function startRecording(
         void notify({ type: "STORAGE_ALERT", low: true, reason: "OPFS_ERROR" });
       },
       onMemoryBufferFull: () => {
-        void reportEvent("OPFS_ERROR", { sessionId, reason: "memory_buffer_full" });
+        void reportEvent("OPFS_ERROR", {
+          sessionId,
+          reason: "memory_buffer_full",
+        });
         void notify({ type: "STORAGE_ALERT", low: true, reason: "OPFS_ERROR" });
       },
     });
@@ -296,17 +306,21 @@ async function startRecording(
           }
           await reportEvent(
             outcome.reason,
-            outcome.reason === "LOW_DISK" ? { freeBytes: outcome.freeBytes } : { backlogBytes: outcome.backlogBytes },
+            outcome.reason === "LOW_DISK"
+              ? { freeBytes: outcome.freeBytes }
+              : { backlogBytes: outcome.backlogBytes },
           );
-          await notify({ type: "STORAGE_ALERT", low: true, reason: outcome.reason });
+          await notify({
+            type: "STORAGE_ALERT",
+            low: true,
+            reason: outcome.reason,
+          });
         })(),
         "storage check",
       );
     }, CONFIG.DISK_CHECK_INTERVAL_MS);
 
     logger.info("offscreen recording started", { sessionId, tier });
-    // The start ack. Until background sees this it treats the session as
-    // tentative, so the popup can show "Starting…" instead of a lie.
     await notify({
       type: "RECORDING_STATE",
       sessionId,
@@ -357,12 +371,7 @@ async function stopRecording(
       sessionId,
       activeSessionId,
     });
-    // Nothing is running here, so this document is dead weight (a start that
-    // failed, or a stop replayed after a service-worker restart). Close it
-    // rather than leaving an idle offscreen document behind. window.close(),
-    // not chrome.offscreen.closeDocument() — the offscreen document can only
-    // use chrome.runtime, so that call would throw the same way chrome.storage
-    // did; self-closing is exactly what window.close() is documented for.
+
     if (activeSessionId === undefined) window.close();
     return;
   }
@@ -374,10 +383,12 @@ async function stopRecording(
     micMonitor?.stop();
     tabMonitor?.stop();
     stopFrameMonitor?.();
-    if (stateMachine)
+
+    if (stateMachine) {
       logTransition(
         await stateMachine.transition("FINALIZING", "stop requested"),
       );
+    }
 
     const { blob, missingChunkIndices } = await recorder.stop();
     if (missingChunkIndices.length > 0) {
@@ -444,9 +455,7 @@ browser.runtime.onMessage.addListener(
         if (activeMix) activeMix.micGain.gain.value = muted ? 0 : 1;
         logger.info("Muted mic: ", { muted });
         return false;
-      // Addressed to background, the popup or a content script. Named explicitly
-      // rather than omitted so the switch stays exhaustive: a new message type is
-      // then a compile error here instead of a silent drop.
+
       case "START_RECORDING":
       case "STOP_RECORDING":
       case "GET_RECORDING_STATE":

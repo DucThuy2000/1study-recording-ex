@@ -72,7 +72,7 @@ function watchMicMuteButton(onChange: (muted: boolean) => void): void {
 export default defineContentScript({
   matches: ["*://meet.google.com/*"],
   main() {
-    logger.info("content script loaded", { url: location.href });
+    logger.info("content script loaded in dev mode", { url: location.href });
 
     // Whether *this* tab is the one being recorded. Pushed by background on
     // start/stop; also asked for on load, so a mid-session page reload doesn't
