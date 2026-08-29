@@ -22,6 +22,8 @@ import {
   evaluateTabUrlChange,
   type SessionEndReason,
 } from "@/src/core/session-end-detector";
+import { formatElapsedBadge } from "@/src/core/badge-format";
+import { withAlert, isDegraded, type AlertKey } from "@/src/core/alert-set";
 import { assertNever } from "@/src/core/assert";
 import { SessionLedger } from "@/src/core/session-ledger";
 import {
@@ -52,6 +54,8 @@ const backgroundEventReporter = new EventReporter(
  */
 const ACTIVE_SESSION_KEY = "activeSession";
 const LAST_ERROR_KEY = "lastSessionError";
+const ACTIVE_ALERTS_KEY = "activeAlerts";
+const BADGE_ALARM = "badgeTick";
 
 function makeSessionId(): string {
   return crypto.randomUUID();
@@ -79,6 +83,48 @@ async function readLastError(): Promise<string | null> {
 
 async function writeLastError(error: string | null): Promise<void> {
   await store.set(LAST_ERROR_KEY, error);
+}
+
+async function readActiveAlerts(): Promise<AlertKey[]> {
+  return (await store.get<AlertKey[]>(ACTIVE_ALERTS_KEY)) ?? [];
+}
+
+/**
+ * Vẽ lại badge từ trạng thái đã persist chứ không từ biến trong bộ nhớ:
+ * service worker chết giữa buổi là chuyện thường, và đồng hồ phải chạy tiếp
+ * đúng chứ không nhảy về 0.
+ */
+async function refreshBadge(): Promise<void> {
+  const active = await readActiveSession();
+  if (!active) {
+    await browser.action.setBadgeText({ text: "" });
+    return;
+  }
+  const degraded = isDegraded(await readActiveAlerts());
+  await browser.action.setBadgeText({
+    text: formatElapsedBadge(Date.now() - active.startedAtMs),
+  });
+  await browser.action.setBadgeBackgroundColor({
+    color: degraded
+      ? CONFIG.BADGE_COLOR_DEGRADED
+      : CONFIG.BADGE_COLOR_RECORDING,
+  });
+}
+
+/** Mọi thứ gắn với badge của một phiên đang chạy. Gọi ở mọi đường giải phóng phiên. */
+async function clearBadgeState(): Promise<void> {
+  await browser.alarms.clear(BADGE_ALARM);
+  await store.set(ACTIVE_ALERTS_KEY, []);
+  await browser.action.setBadgeText({ text: "" });
+}
+
+/** Bật/tắt một nguồn cảnh báo rồi vẽ lại badge nếu tập cảnh báo thực sự đổi. */
+async function setAlert(key: AlertKey, active: boolean): Promise<void> {
+  const before = await readActiveAlerts();
+  const after = withAlert(before, key, active);
+  if (before.length === after.length) return;
+  await store.set(ACTIVE_ALERTS_KEY, after);
+  await refreshBadge();
 }
 
 /**
@@ -329,6 +375,7 @@ async function endSession(sessionId: string, reason: EndReason): Promise<void> {
   // Giải phóng quyền sở hữu trước: kể cả khi offscreen đã biến mất, giáo viên
   // vẫn phải bắt đầu được phiên mới ngay sau đó.
   await writeActiveSession(null);
+  await clearBadgeState();
   if (active) {
     await sendToTab(active.tabId, {
       type: "RECORDING_ACTIVE",
@@ -359,6 +406,13 @@ async function handleRecordingState(
       return;
     }
     await writeActiveSession({ ...active, status: "RECORDING" });
+    await store.set(ACTIVE_ALERTS_KEY, []);
+    // chrome.alarms chứ không phải setInterval: service worker bị Chrome giết
+    // bất cứ lúc nào, alarm đánh thức nó dậy đúng hạn còn setInterval chết theo.
+    await browser.alarms.create(BADGE_ALARM, {
+      periodInMinutes: CONFIG.BADGE_TICK_ALARM_MINUTES,
+    });
+    await refreshBadge();
     await sendToTab(active.tabId, {
       type: "RECORDING_ACTIVE",
       active: true,
@@ -382,6 +436,7 @@ async function handleRecordingState(
     await writeLastError(detail);
     if (active?.sessionId === message.sessionId) {
       await writeActiveSession(null);
+      await clearBadgeState();
       await sendToTab(active.tabId, {
         type: "RECORDING_ACTIVE",
         active: false,
@@ -403,6 +458,7 @@ async function handleRecordingState(
     // thì active đã null và cả khối này là no-op.
     if (active?.sessionId === message.sessionId) {
       await writeActiveSession(null);
+      await clearBadgeState();
       await sendToTab(active.tabId, {
         type: "RECORDING_ACTIVE",
         active: false,
@@ -468,6 +524,11 @@ function run(task: Promise<void>, label: string): void {
 
 export default defineBackground(() => {
   logger.info("service worker started");
+
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== BADGE_ALARM) return;
+    run(refreshBadge(), "badge tick");
+  });
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === "complete")
@@ -556,9 +617,19 @@ export default defineBackground(() => {
           run(handleRecordingState(message), "state update");
           return false;
         case "AUDIO_ALERT":
+          run(setAlert(message.source, message.silent), "audio alert badge");
+          run(fanOutToRecordedTab(message), "alert fan-out");
+          return false;
         case "VIDEO_STALLED":
+          run(setAlert("video", true), "video stall badge");
+          run(fanOutToRecordedTab(message), "alert fan-out");
+          return false;
         case "VIDEO_RECOVERED":
+          run(setAlert("video", false), "video recovered badge");
+          run(fanOutToRecordedTab(message), "alert fan-out");
+          return false;
         case "STORAGE_ALERT":
+          run(setAlert("storage", message.low), "storage alert badge");
           run(fanOutToRecordedTab(message), "alert fan-out");
           return false;
         case "MIC_MUTE_CHANGED":
