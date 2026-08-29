@@ -17,6 +17,11 @@ import { CONFIG } from "@/src/shared/config";
 import { createLogger } from "@/src/core/logger";
 import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
 import { evaluateGuard } from "@/src/core/tab-guard";
+import {
+  evaluateTabRemoved,
+  evaluateTabUrlChange,
+  type SessionEndReason,
+} from "@/src/core/session-end-detector";
 import { assertNever } from "@/src/core/assert";
 import { SessionLedger } from "@/src/core/session-ledger";
 import {
@@ -298,30 +303,47 @@ async function handleStart(
   }
 }
 
-async function handleStop(message: MessageOf<"STOP_RECORDING">): Promise<void> {
+/** Vì sao một phiên kết thúc. Rộng hơn `SessionEndReason` vì bấm Dừng không phải sự kiện tab. */
+type EndReason = SessionEndReason | "USER_STOPPED";
+
+/**
+ * Đường finalize duy nhất. Mọi cách kết thúc một phiên — giáo viên bấm Dừng,
+ * đóng tab, rời cuộc họp — đều đi qua đây, nên chỉ có một trình tự dọn dẹp
+ * để suy luận và để sửa.
+ *
+ * `reason` chỉ dùng để ghi log. Trạng thái trong sessionLedger vẫn do đường
+ * FINALIZING sẵn có ghi khi offscreen chốt xong file.
+ */
+async function endSession(sessionId: string, reason: EndReason): Promise<void> {
   const active = await readActiveSession();
-  if (!active || active.sessionId !== message.sessionId) {
-    logger.warn("stop requested for a session this worker does not own", {
-      requested: message.sessionId,
+  if (!active || active.sessionId !== sessionId) {
+    logger.warn("end requested for a session this worker does not own", {
+      requested: sessionId,
       active: active?.sessionId ?? null,
+      reason,
     });
   }
 
-  // Release ownership first: even if the offscreen document is already gone,
-  // the teacher must be able to start a new session afterwards.
+  logger.info("ending session", { sessionId, reason });
+
+  // Giải phóng quyền sở hữu trước: kể cả khi offscreen đã biến mất, giáo viên
+  // vẫn phải bắt đầu được phiên mới ngay sau đó.
   await writeActiveSession(null);
-  if (active)
+  if (active) {
     await sendToTab(active.tabId, {
       type: "RECORDING_ACTIVE",
       active: false,
       sessionId: null,
+      startedAtMs: null,
     });
+  }
   // The single relay into the offscreen document, from the single place that
   // ever relays it.
-  await browser.runtime.sendMessage({
-    type: "RECORDING_STOP",
-    sessionId: message.sessionId,
-  });
+  await browser.runtime.sendMessage({ type: "RECORDING_STOP", sessionId });
+}
+
+async function handleStop(message: MessageOf<"STOP_RECORDING">): Promise<void> {
+  await endSession(message.sessionId, "USER_STOPPED");
 }
 
 async function handleRecordingState(
@@ -341,6 +363,7 @@ async function handleRecordingState(
       type: "RECORDING_ACTIVE",
       active: true,
       sessionId: message.sessionId,
+      startedAtMs: active.startedAtMs,
     });
     logger.info("recording confirmed", {
       sessionId: message.sessionId,
@@ -363,6 +386,7 @@ async function handleRecordingState(
         type: "RECORDING_ACTIVE",
         active: false,
         sessionId: null,
+        startedAtMs: null,
       });
     }
     return;
@@ -373,10 +397,23 @@ async function handleRecordingState(
     // recorder.stop() and the download both succeeded — it's always a
     // terminal, locally-complete signal here, never "still finalizing."
     await sessionLedger.setStatus(message.sessionId, "STOPPED");
+
+    // Khi offscreen tự dừng (video track chết) thì background chưa hề biết.
+    // endSession chưa chạy, nên phải dọn ở đây. Nếu endSession đã chạy rồi
+    // thì active đã null và cả khối này là no-op.
+    if (active?.sessionId === message.sessionId) {
+      await writeActiveSession(null);
+      await sendToTab(active.tabId, {
+        type: "RECORDING_ACTIVE",
+        active: false,
+        sessionId: null,
+        startedAtMs: null,
+      });
+    }
+    return;
   }
 
-  // FINALIZING and the rest are informational; ownership was already released
-  // by handleStop.
+  // Các trạng thái còn lại chỉ mang tính thông tin.
   logger.info("session state", {
     sessionId: message.sessionId,
     state: message.state,
@@ -435,6 +472,36 @@ export default defineBackground(() => {
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === "complete")
       void refreshActionState(tabId, tab.url);
+
+    // Bấm "Kết thúc cuộc gọi" làm Meet điều hướng khỏi mã phòng. onUpdated
+    // bắn cả với điều hướng SPA qua history.pushState, nên không cần load lại
+    // trang mới nhận được.
+    if (changeInfo.url === undefined) return;
+    run(
+      (async () => {
+        const active = await readActiveSession();
+        const reason = evaluateTabUrlChange(active, tabId, changeInfo.url);
+        if (!reason || !active) return;
+        await endSession(active.sessionId, reason);
+      })(),
+      "tab url change",
+    );
+  });
+
+  // Đóng tab đang ghi = lớp kết thúc. Không có listener này thì tabCapture
+  // chết theo tab (khung hình đóng băng) trong khi mic getUserMedia — vốn
+  // độc lập với tab — vẫn thu tiếp: đúng cái đuôi ảnh đơ kèm tiếng giáo viên
+  // mà bản ghi đang bị dính.
+  browser.tabs.onRemoved.addListener((tabId) => {
+    run(
+      (async () => {
+        const active = await readActiveSession();
+        const reason = evaluateTabRemoved(active, tabId);
+        if (!reason || !active) return;
+        await endSession(active.sessionId, reason);
+      })(),
+      "tab removed",
+    );
   });
 
   browser.tabs.onActivated.addListener(async ({ tabId }) => {

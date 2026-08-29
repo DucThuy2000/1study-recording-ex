@@ -117,8 +117,9 @@ export type Message =
   | { type: 'VIDEO_RECOVERED'; sessionId: string; atMs: number }
   // offscreen → background → content script (content.ts renders the banner; the popup receives the same broadcast but ignores it)
   | { type: 'STORAGE_ALERT'; low: boolean; reason?: 'LOW_DISK' | 'BACKLOG_HIGH' | 'OPFS_ERROR' }
-  // background → content script (via browser.tabs.sendMessage)
-  | { type: 'RECORDING_ACTIVE'; active: boolean; sessionId: string | null }
+  // background → content script (via browser.tabs.sendMessage). `startedAtMs`
+  // đi kèm để pill dựng được đồng hồ ngay, không phải hỏi ngược lại.
+  | { type: 'RECORDING_ACTIVE'; active: boolean; sessionId: string | null; startedAtMs: number | null }
   // background → popup
   | { type: 'GUARD_RESULT'; allowed: boolean; reason?: GuardFailureReason; detail?: string };
 
