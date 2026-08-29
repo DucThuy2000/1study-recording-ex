@@ -216,6 +216,10 @@ async function handleStart(
     return;
   }
 
+  // Guard đã bảo đảm đây là tab Meet có mã phòng hợp lệ, nên giá trị này
+  // không thể null — tính một lần ở đây thay vì ép kiểu ở từng chỗ dùng.
+  const meetingCode = extractMeetingCode(tab.url ?? "")!;
+
   // Prevent client's device run out of disk spaces
   const { quota, usage } = await navigator.storage.estimate();
   const freeBytes = (quota ?? 0) - (usage ?? 0);
@@ -260,12 +264,13 @@ async function handleStart(
     await writeActiveSession({
       sessionId,
       tabId: message.tabId,
+      meetingCode,
       status: "STARTING",
       startedAtMs: Date.now(),
     });
     await sessionLedger.start({
       sessionId,
-      meetingCode: extractMeetingCode(tab.url ?? "")!,
+      meetingCode,
       tabId: message.tabId,
       startedAtMs: Date.now(),
     });

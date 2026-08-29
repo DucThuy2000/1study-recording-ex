@@ -45,6 +45,14 @@ export type ActiveSessionStatus = 'STARTING' | 'RECORDING';
 export interface ActiveSessionInfo {
   sessionId: string;
   tabId: number;
+  /**
+   * Mã phòng Meet của tab đang ghi. Dùng để phát hiện giáo viên đã rời cuộc
+   * họp: URL đổi mà mã phòng khác đi nghĩa là lớp kết thúc.
+   *
+   * Phiên cũ còn sót trong chrome.storage.local từ bản trước không có trường
+   * này, nên nó phải được đọc như một giá trị có thể thiếu ở phía tiêu thụ.
+   */
+  meetingCode: string;
   status: ActiveSessionStatus;
   startedAtMs: number;
 }
