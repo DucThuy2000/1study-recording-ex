@@ -3,11 +3,11 @@ import { browser } from "wxt/browser";
 import { createLogger } from "@/src/core/logger";
 import { assertNever } from "@/src/core/assert";
 import { StatusPill } from "@/src/content-logic/status-pill";
-import { watchCallEnded } from "@/src/core/session-end-detector";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
 
 const logger = createLogger("content");
 const MUTE_BUTTON_SELECTOR = "button[data-is-muted]";
+const CALL_ENDED_SELECTOR = '[data-call-ended="true"]';
 
 function watchMicMuteButton(onChange: (muted: boolean) => void): void {
   let lastMuted: boolean | undefined;
@@ -28,6 +28,31 @@ function watchMicMuteButton(onChange: (muted: boolean) => void): void {
     attributes: true,
     attributeFilter: ["data-is-muted"],
   });
+}
+
+function watchCallEnded(onEnded: () => void): () => void {
+  let reported = false;
+  let observer: MutationObserver | undefined;
+
+  function check(): void {
+    if (reported) return;
+    if (!document.querySelector(CALL_ENDED_SELECTOR)) return;
+    reported = true;
+    observer?.disconnect();
+    onEnded();
+  }
+
+  check();
+  if (reported) return () => undefined;
+
+  observer = new MutationObserver(check);
+  observer.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-call-ended"],
+  });
+  return () => observer?.disconnect();
 }
 
 export default defineContentScript({
@@ -126,7 +151,6 @@ export default defineContentScript({
         // This script sends MIC_MUTE_CHANGED rather than receiving it, and
         // never sees SET_MIC_MUTED at all (background → offscreen only).
         case "MIC_MUTE_CHANGED":
-        // Cũng do script này gửi đi, không nhận.
         case "MEETING_LEFT":
         case "SET_MIC_MUTED":
         case "RECORDING_STARTED":

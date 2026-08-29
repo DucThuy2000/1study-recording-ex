@@ -325,9 +325,6 @@ async function handleStart(
       tabId: message.tabId,
       startedAtMs: Date.now(),
     });
-    // Already exists from the permission check above; ensureDocument() is a
-    // no-op when one does, so this stays correct even if that check is ever
-    // skipped or reordered.
     await offscreen.ensureDocument(
       "/offscreen.html",
       ["USER_MEDIA"],
@@ -491,7 +488,9 @@ async function handleMicMuteChanged(
  * Chỉ chấp nhận từ đúng tab đang ghi: mọi tab Meet đều chạy content script,
  * nên một tab Meet khác kết thúc cuộc gọi của nó không được dừng lớp đang dạy.
  */
-async function handleMeetingLeft(senderTabId: number | undefined): Promise<void> {
+async function handleMeetingLeft(
+  senderTabId: number | undefined,
+): Promise<void> {
   const active = await readActiveSession();
   if (!active || active.tabId !== senderTabId) return;
   await endSession(active.sessionId, "MEETING_LEFT");
