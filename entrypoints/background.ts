@@ -638,6 +638,9 @@ export default defineBackground(() => {
             "mic mute changed",
           );
           return false;
+        // Mức âm chỉ dành cho popup — không đấu vào setAlert cũng không
+        // fan-out sang content script, pill không hiện mức âm.
+        case "AUDIO_LEVEL":
         // Messages this worker emits rather than consumes.
         case "RECORDING_STARTED":
         case "RECORDING_STOP":

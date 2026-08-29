@@ -194,6 +194,7 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case "STORAGE_GET":
     case "STORAGE_SET":
     case "AUDIO_ALERT":
+    case "AUDIO_LEVEL":
     case "VIDEO_STALLED":
     case "VIDEO_RECOVERED":
     case "STORAGE_ALERT":

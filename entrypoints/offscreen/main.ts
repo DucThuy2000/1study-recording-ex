@@ -21,6 +21,7 @@ import {
 import { MessagingStorageAdapter } from "@/src/adapters/messaging-storage";
 import { createLogger } from "@/src/core/logger";
 import { pickDeviceTier } from "@/src/core/device-tier";
+import { levelToPercent } from "@/src/core/rms";
 import { assertNever } from "@/src/core/assert";
 import { isErr, type Result } from "@/src/core/result";
 import type { RecordingEvent } from "@/src/core/event-reporter";
@@ -59,6 +60,9 @@ let stopFrameMonitor: (() => void) | undefined;
 let micMuted = false;
 let storageCheckIntervalId: ReturnType<typeof setInterval> | undefined;
 let storageAlerting = false;
+let lastMicPercent = 0;
+let lastTabPercent = 0;
+let levelBroadcastIntervalId: ReturnType<typeof setInterval> | undefined;
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -154,6 +158,11 @@ function releaseSessionHandles(): void {
     clearInterval(storageCheckIntervalId);
   storageCheckIntervalId = undefined;
   storageAlerting = false;
+  if (levelBroadcastIntervalId !== undefined)
+    clearInterval(levelBroadcastIntervalId);
+  levelBroadcastIntervalId = undefined;
+  lastMicPercent = 0;
+  lastTabPercent = 0;
   activeMix?.micSource.mediaStream.getTracks().forEach((track) => track.stop());
   activeTabStream?.getTracks().forEach((track) => track.stop());
   const ctx = activeMix?.ctx;
@@ -284,29 +293,55 @@ async function startRecording(
       void notify({ type: "VIDEO_RECOVERED", sessionId, atMs: event.atMs });
     });
 
-    micMonitor = new AudioLevelMonitor(ctx, micSource, (event) => {
-      // A deliberate Meet-mute is not a mic problem — the detector still runs
-      // (so it's caught up whenever the teacher unmutes), it just doesn't
-      // surface anything while muted.
-      if (micMuted) return;
-      if (event === "ALERT") void reportEvent("MIC_SILENT", { sessionId });
-      void notify({
-        type: "AUDIO_ALERT",
-        source: "mic",
-        silent: event === "ALERT",
-      });
-    });
-    tabMonitor = new AudioLevelMonitor(ctx, tabSource, (event) => {
-      if (event === "ALERT")
-        void reportEvent("TAB_AUDIO_SILENT", { sessionId });
-      void notify({
-        type: "AUDIO_ALERT",
-        source: "tab",
-        silent: event === "ALERT",
-      });
-    });
+    micMonitor = new AudioLevelMonitor(
+      ctx,
+      micSource,
+      (event) => {
+        // A deliberate Meet-mute is not a mic problem — the detector still runs
+        // (so it's caught up whenever the teacher unmutes), it just doesn't
+        // surface anything while muted.
+        if (micMuted) return;
+        if (event === "ALERT") void reportEvent("MIC_SILENT", { sessionId });
+        void notify({
+          type: "AUDIO_ALERT",
+          source: "mic",
+          silent: event === "ALERT",
+        });
+      },
+      (rms) => {
+        // Thanh về 0 khi đang mute là cố ý: bản ghi lúc đó thật sự không có
+        // tiếng giáo viên (micGain.gain.value = 0), thanh phải nói đúng sự thật.
+        lastMicPercent = micMuted ? 0 : levelToPercent(rms);
+      },
+    );
+    tabMonitor = new AudioLevelMonitor(
+      ctx,
+      tabSource,
+      (event) => {
+        if (event === "ALERT")
+          void reportEvent("TAB_AUDIO_SILENT", { sessionId });
+        void notify({
+          type: "AUDIO_ALERT",
+          source: "tab",
+          silent: event === "ALERT",
+        });
+      },
+      (rms) => {
+        lastTabPercent = levelToPercent(rms);
+      },
+    );
     micMonitor.start();
     tabMonitor.start();
+
+    // Một message gộp thay vì hai luồng riêng: popup vẽ cả hai thanh trong
+    // cùng một khung hình, và số message giảm một nửa.
+    levelBroadcastIntervalId = setInterval(() => {
+      void notify({
+        type: "AUDIO_LEVEL",
+        mic: lastMicPercent,
+        tab: lastTabPercent,
+      });
+    }, CONFIG.LEVEL_SAMPLE_MS);
 
     storageCheckIntervalId = setInterval(() => {
       run(
@@ -486,6 +521,7 @@ browser.runtime.onMessage.addListener(
       case "STORAGE_SET":
       case "RECORDING_STATE":
       case "AUDIO_ALERT":
+      case "AUDIO_LEVEL":
       case "VIDEO_STALLED":
       case "VIDEO_RECOVERED":
       case "STORAGE_ALERT":

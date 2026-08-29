@@ -13,6 +13,13 @@ export const CONFIG = {
   STALL_GAP_MS: 3000,
   FRAME_MONITOR_POLL_MS: 1000,
   SILENCE_RMS_THRESHOLD: 0.01,
+  LEVEL_SAMPLE_MS: 250,
+  /**
+   * Trần RMS ánh xạ thành 100% trên thanh mức âm. Giọng nói bình thường qua
+   * micro có xử lý nằm khoảng 0.01–0.25; lấy trần cao hơn nữa thì thanh dính
+   * đáy và giáo viên tưởng máy không nghe thấy mình.
+   */
+  LEVEL_CEILING_RMS: 0.25,
   EVENT_QUEUE_MAX_PENDING: 500,
   STARTING_ACK_TIMEOUT_MS: 15_000,
   BADGE_TICK_ALARM_MINUTES: 1,

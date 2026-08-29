@@ -172,6 +172,7 @@ export default defineContentScript({
         case "STORAGE_GET":
         case "STORAGE_SET":
         case "RECORDING_STATE":
+        case "AUDIO_LEVEL":
         case "GUARD_RESULT":
           return;
         default:

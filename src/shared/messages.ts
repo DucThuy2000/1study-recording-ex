@@ -113,6 +113,10 @@ export type Message =
   // offscreen → background (the popup receives the same broadcast and renders it)
   | { type: 'RECORDING_STATE'; sessionId: string; state: SessionState; elapsedMs: number; error?: string }
   | { type: 'AUDIO_ALERT'; source: 'mic' | 'tab'; silent: boolean }
+  // offscreen → popup: mức âm trực tiếp cho hai thanh, đơn vị phần trăm 0–100
+  // (đã chuẩn hoá ở offscreen, người nhận không cần biết gì về RMS). Phát
+  // liên tục trong lúc ghi; popup đóng thì không ai nhận và notify() nuốt lỗi.
+  | { type: 'AUDIO_LEVEL'; mic: number; tab: number }
   | { type: 'VIDEO_STALLED'; sessionId: string; gapMs: number; atMs: number }
   | { type: 'VIDEO_RECOVERED'; sessionId: string; atMs: number }
   // offscreen → background → content script (content.ts renders the banner; the popup receives the same broadcast but ignores it)
