@@ -3,7 +3,7 @@ import { browser } from "wxt/browser";
 import { createLogger } from "@/src/core/logger";
 import { assertNever } from "@/src/core/assert";
 import { StatusPill } from "@/src/content-logic/status-pill";
-import { watchCallEnded } from "@/src/content-logic/call-end-watcher";
+import { watchCallEnded } from "@/src/core/session-end-detector";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
 
 const logger = createLogger("content");

@@ -120,13 +120,8 @@ export class StatusPill {
   }
 
   /**
-   * Xác nhận đã dừng, rồi tự biến mất. Giáo viên bấm "Kết thúc cuộc gọi" thì
-   * tab vẫn còn — không có gì nói cho họ biết bản ghi đã được chốt an toàn,
-   * và im lặng ở đúng chỗ này là kiểu lỗi R6 nói tới. Chỉ báo, không chặn:
-   * lớp đã kết thúc rồi, không còn gì để chen vào (R12).
-   *
-   * Đóng tab thì pill chết theo tab và không ai thấy lời này — badge và popup
-   * lo phần đó.
+   * Xác nhận đã dừng rồi tự biến mất. Đóng tab thì pill chết theo tab và không
+   * ai thấy lời này — badge và popup lo phần đó.
    */
   showStopped(): void {
     if (!this.pill || !this.labelEl) return;

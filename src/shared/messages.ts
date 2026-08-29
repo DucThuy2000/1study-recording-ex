@@ -86,11 +86,8 @@ export type Message =
   // ever changes this markup, the button is just never found and recording
   // continues exactly as it does today, without mute detection).
   | { type: "MIC_MUTE_CHANGED"; muted: boolean }
-  // content script → background: Meet đã vẽ màn hình hậu-cuộc-gọi. Cần một
-  // message riêng vì Meet KHÔNG đổi URL khi rời cuộc họp (đã kiểm chứng trên
-  // Meet thật), nên bộ phát hiện dựa trên URL ở background không bao giờ thấy.
-  // Fail mềm giống MIC_MUTE_CHANGED: selector hỏng thì message không bao giờ
-  // được gửi, ghi hình chạy tiếp đúng như trước.
+  // content script → background: Meet đã vẽ màn hình hậu-cuộc-gọi. Cần message
+  // riêng vì Meet không đổi URL khi rời cuộc họp (xem watchCallEnded).
   | { type: "MEETING_LEFT" }
   // background → offscreen (commands)
   | { type: "RECORDING_STARTED"; sessionId: string; streamId: string }

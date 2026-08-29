@@ -351,7 +351,7 @@ async function handleStart(
 
 async function endSession(
   sessionId: string,
-  reason: SessionEndReason,
+  reason: SessionEndReason | "USER_STOPPED",
 ): Promise<void> {
   const active = await readActiveSession();
   if (!active || active.sessionId !== sessionId) {
@@ -488,14 +488,8 @@ async function handleMicMuteChanged(
 }
 
 /**
- * Meet giữ nguyên URL khi giáo viên bấm "Kết thúc cuộc gọi" — nó chỉ vẽ đè
- * màn hình hậu-cuộc-gọi — nên `evaluateTabUrlChange` không bao giờ thấy, và
- * `videoTrack.onended` cũng không: tab vẫn đang bị capture, chỉ là đang quay
- * đúng cái màn hình đó. Đây là đường phát hiện duy nhất cho trường hợp này.
- *
- * Chỉ chấp nhận từ đúng tab đang ghi. Mọi tab Meet đều chạy content script,
- * nên một tab Meet khác kết thúc cuộc gọi của nó không được phép dừng lớp
- * đang dạy.
+ * Chỉ chấp nhận từ đúng tab đang ghi: mọi tab Meet đều chạy content script,
+ * nên một tab Meet khác kết thúc cuộc gọi của nó không được dừng lớp đang dạy.
  */
 async function handleMeetingLeft(senderTabId: number | undefined): Promise<void> {
   const active = await readActiveSession();
