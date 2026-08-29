@@ -208,6 +208,24 @@ async function startRecording(
     });
 
     activeTabStream = await openTabStream(streamId, tier);
+
+    // Lưới an toàn cho việc tự dừng. Background cũng phát hiện đóng tab và
+    // rời cuộc họp (session-end-detector), nhưng lớp này không phụ thuộc vào
+    // listener nào của service worker còn sống, cũng không phụ thuộc vào việc
+    // Meet có đổi URL hay không — track chết là sự thật của tầng media.
+    //
+    // Dùng lại đúng stopRecording: cùng đường finalize, cùng
+    // releaseSessionHandles(), cùng window.close(). Gọi hai lần vô hại vì
+    // stopRecording rơi vào nhánh "unknown session" khi phiên đã dọn xong.
+    activeTabStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+      logger.warn("captured video track ended — stopping the session", {
+        sessionId,
+      });
+      run(
+        stopRecording({ type: "RECORDING_STOP", sessionId }),
+        "track ended stop",
+      );
+    });
     activeMix = await mixTabAndMic(activeTabStream);
     const { mixedStream, ctx, tabSource, micSource } = activeMix;
 
