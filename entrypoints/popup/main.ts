@@ -154,7 +154,10 @@ async function applyGuard(): Promise<void> {
   );
   if (guard.allowed) {
     guardAllowed = true;
-    roomCode = actualCode;
+    // Chỉ lấy mã phòng của tab đang active khi KHÔNG có phiên nào chạy. Đang
+    // ghi mà mở popup từ một tab Meet khác thì mã phòng phải là của phiên
+    // đang ghi, không phải của tab đang nhìn.
+    if (view.kind === "IDLE") roomCode = actualCode;
     guardMessage = "Sẵn sàng ghi tab Meet này.";
     return;
   }
