@@ -351,7 +351,7 @@ async function handleStart(
 
 async function endSession(
   sessionId: string,
-  reason: SessionEndReason | "USER_STOPPED",
+  reason: SessionEndReason,
 ): Promise<void> {
   const active = await readActiveSession();
   if (!active || active.sessionId !== sessionId) {
