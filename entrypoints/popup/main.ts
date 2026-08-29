@@ -1,56 +1,118 @@
+import "./style.css";
 import { browser } from "wxt/browser";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
 import { getActiveTab } from "@/src/adapters/chrome-api";
 import { createLogger } from "@/src/core/logger";
 import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
 import { evaluateGuard } from "@/src/core/tab-guard";
+import { formatClock } from "@/src/core/badge-format";
 import { assertNever } from "@/src/core/assert";
 
 const logger = createLogger("popup");
 
-const startBtn = document.querySelector<HTMLButtonElement>("#start")!;
-const stopBtn = document.querySelector<HTMLButtonElement>("#stop")!;
-const status = document.querySelector<HTMLDivElement>("#status")!;
+const el = {
+  chip: document.querySelector<HTMLSpanElement>("#chip")!,
+  clock: document.querySelector<HTMLDivElement>("#clock")!,
+  room: document.querySelector<HTMLDivElement>("#room")!,
+  roomCode: document.querySelector<HTMLSpanElement>("#room-code")!,
+  levels: document.querySelector<HTMLDivElement>("#levels")!,
+  micBar: document.querySelector<HTMLDivElement>("#mic-bar")!,
+  tabBar: document.querySelector<HTMLDivElement>("#tab-bar")!,
+  message: document.querySelector<HTMLParagraphElement>("#message")!,
+  start: document.querySelector<HTMLButtonElement>("#start")!,
+  stop: document.querySelector<HTMLButtonElement>("#stop")!,
+};
 
 type PopupView =
   | { kind: "IDLE" }
   | { kind: "STARTING" }
-  | { kind: "RECORDING"; sessionId: string }
+  | { kind: "RECORDING"; sessionId: string; startedAtMs: number }
   | { kind: "STOPPING"; sessionId: string };
+
+type Tone = "muted" | "error" | "ok";
 
 let view: PopupView = { kind: "IDLE" };
 let guardAllowed = false;
-let guardMessage = "Checking this tab…";
-let notice: string | null = null;
+let guardMessage = "Đang kiểm tra tab này…";
+let roomCode: string | null = null;
+let notice: { text: string; tone: Tone } | null = null;
+let degraded = false;
+let clockIntervalId: ReturnType<typeof setInterval> | undefined;
+
+function setMessage(text: string, tone: Tone): void {
+  el.message.textContent = text;
+  el.message.dataset.tone = tone;
+}
+
+/**
+ * Đồng hồ chạy trong popup được, nhưng mốc bắt đầu thì không: nó tính từ
+ * `startedAtMs` mà background persist, nên đóng rồi mở lại popup giữa buổi
+ * vẫn ra đúng số chứ không đếm lại từ 0.
+ */
+function startClock(startedAtMs: number): void {
+  stopClock();
+  const tick = (): void => {
+    el.clock.textContent = formatClock(Date.now() - startedAtMs);
+  };
+  tick();
+  clockIntervalId = setInterval(tick, 1000);
+}
+
+function stopClock(): void {
+  if (clockIntervalId !== undefined) clearInterval(clockIntervalId);
+  clockIntervalId = undefined;
+}
 
 function render(): void {
+  const recording = view.kind === "RECORDING";
+
+  el.chip.hidden = !recording && view.kind !== "STARTING";
+  el.chip.textContent = recording ? "ĐANG GHI" : "ĐANG BẮT ĐẦU";
+  el.chip.dataset.degraded = String(degraded && recording);
+
+  el.clock.hidden = !recording;
+  el.levels.hidden = !recording;
+
+  el.room.hidden = roomCode === null;
+  if (roomCode) el.roomCode.textContent = roomCode;
+
+  el.start.hidden = recording || view.kind === "STOPPING";
+  el.stop.hidden = !el.start.hidden;
+
   switch (view.kind) {
     case "IDLE":
-      startBtn.disabled = !guardAllowed;
-      stopBtn.disabled = true;
-      status.textContent = notice ?? guardMessage;
+      el.start.disabled = !guardAllowed;
+      el.start.textContent = "Bắt đầu ghi";
+      setMessage(notice?.text ?? guardMessage, notice?.tone ?? "muted");
       return;
     case "STARTING":
-      startBtn.disabled = true;
-      stopBtn.disabled = true;
-      status.textContent = "Starting…";
+      el.start.disabled = true;
+      el.start.textContent = "Đang bắt đầu…";
+      setMessage("Đang chuẩn bị ghi hình…", "muted");
       return;
     case "RECORDING":
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      status.textContent = `Recording session ${view.sessionId}`;
+      el.stop.disabled = false;
+      el.stop.textContent = "Dừng ghi";
+      setMessage(notice?.text ?? "", notice?.tone ?? "muted");
       return;
     case "STOPPING":
-      startBtn.disabled = true;
-      stopBtn.disabled = true;
-      status.textContent = "Stopping…";
+      el.stop.disabled = true;
+      el.stop.textContent = "Đang dừng…";
+      setMessage("Đang chốt file…", "muted");
       return;
     default:
       return assertNever(view);
   }
 }
 
-/** Reads background's persisted active-session state instead of trusting a one-shot message. */
+function enterView(next: PopupView): void {
+  view = next;
+  if (next.kind === "RECORDING") startClock(next.startedAtMs);
+  else stopClock();
+  render();
+}
+
+/** Đọc trạng thái phiên đã persist ở background thay vì tin vào một message một chiều. */
 async function rehydrate(): Promise<void> {
   try {
     const response = await browser.runtime.sendMessage<
@@ -59,39 +121,48 @@ async function rehydrate(): Promise<void> {
     >({
       type: "GET_RECORDING_STATE",
     });
-    notice = response?.lastError ?? null;
+    const lastError = response?.lastError ?? null;
+    notice = lastError ? { text: lastError, tone: "error" } : null;
     const session = response?.session ?? null;
     if (!session) {
-      view = { kind: "IDLE" };
+      enterView({ kind: "IDLE" });
       return;
     }
-    view =
+    roomCode = session.meetingCode ?? roomCode;
+    enterView(
       session.status === "RECORDING"
-        ? { kind: "RECORDING", sessionId: session.sessionId }
-        : { kind: "STARTING" };
+        ? {
+            kind: "RECORDING",
+            sessionId: session.sessionId,
+            startedAtMs: session.startedAtMs,
+          }
+        : { kind: "STARTING" },
+    );
   } catch (error) {
     logger.error("could not read recording state", { error: String(error) });
-    view = { kind: "IDLE" };
+    enterView({ kind: "IDLE" });
   }
 }
 
 async function applyGuard(): Promise<void> {
   const tab = await getActiveTab();
+  const actualCode = tab ? extractMeetingCode(tab.url) : null;
   const guard = evaluateGuard(
     !!tab && isMeetUrl(tab.url),
-    tab ? extractMeetingCode(tab.url) : null,
+    actualCode,
     undefined,
   );
   if (guard.allowed) {
     guardAllowed = true;
-    guardMessage = "Ready to record this Meet tab.";
+    roomCode = actualCode;
+    guardMessage = "Sẵn sàng ghi tab Meet này.";
     return;
   }
   guardAllowed = false;
   guardMessage =
     guard.reason === "NOT_MEET_TAB"
-      ? "Open a Google Meet class tab first, then click the extension icon again."
-      : `This tab's meeting code doesn't match the scheduled class (${guard.actualCode}). Confirm before recording.`;
+      ? "Mở tab Google Meet của lớp rồi bấm lại vào biểu tượng extension."
+      : `Mã phòng của tab này (${guard.actualCode}) không khớp lớp đã lên lịch. Xác nhận trước khi ghi.`;
 }
 
 function guardFailureText(
@@ -99,17 +170,17 @@ function guardFailureText(
 ): string {
   switch (message.reason) {
     case "ALREADY_RECORDING":
-      return "A recording is already running. Use Stop to end it first.";
+      return "Đang có một phiên ghi chạy. Bấm Dừng ghi để kết thúc phiên đó trước.";
     case "NOT_MEET_TAB":
-      return "Open a Google Meet class tab first, then click the extension icon again.";
+      return "Mở tab Google Meet của lớp rồi bấm lại vào biểu tượng extension.";
     case "MEETING_CODE_MISMATCH":
-      return "This tab's meeting code doesn't match the scheduled class.";
+      return "Mã phòng của tab này không khớp lớp đã lên lịch.";
     case "START_FAILED":
-      return `Could not start recording: ${message.detail ?? "unknown error"}`;
+      return `Không bắt đầu ghi được: ${message.detail ?? "lỗi không xác định"}`;
     case "MIC_PERMISSION_NEEDED":
-      return "Grant microphone access in the tab that just opened, then click Start again.";
+      return "Cấp quyền micro ở tab vừa mở, rồi bấm Bắt đầu ghi lại.";
     case "MIC_PERMISSION_DENIED":
-      return "Microphone access is blocked for this extension. Reset it under chrome://settings/content/microphone, then try again.";
+      return "Quyền micro đang bị chặn. Mở chrome://settings/content/microphone để bỏ chặn rồi thử lại.";
     case "LOW_DISK":
       return (
         message.detail ??
@@ -121,23 +192,22 @@ function guardFailureText(
         "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại."
       );
     case undefined:
-      return "Could not start recording.";
+      return "Không bắt đầu ghi được.";
     default:
       return assertNever(message.reason);
   }
 }
 
-startBtn.addEventListener("click", () => {
+el.start.addEventListener("click", () => {
   void (async () => {
     const tab = await getActiveTab();
     if (!tab) {
-      notice = "No active tab found.";
+      notice = { text: "Không tìm thấy tab đang mở.", tone: "error" };
       render();
       return;
     }
     notice = null;
-    view = { kind: "STARTING" };
-    render();
+    enterView({ kind: "STARTING" });
     await browser.runtime.sendMessage({
       type: "START_RECORDING",
       tabId: tab.id,
@@ -145,44 +215,63 @@ startBtn.addEventListener("click", () => {
   })();
 });
 
-stopBtn.addEventListener("click", () => {
+el.stop.addEventListener("click", () => {
   void (async () => {
     if (view.kind !== "RECORDING") return;
     const { sessionId } = view;
-    view = { kind: "STOPPING", sessionId };
-    render();
-    // Goes to background only. Background is the single context that relays a
-    // stop into the offscreen document, so there is no second delivery path.
+    enterView({ kind: "STOPPING", sessionId });
+    // Chỉ gửi tới background. Background là context duy nhất chuyển lệnh dừng
+    // vào offscreen, nên không có đường giao thứ hai.
     await browser.runtime.sendMessage({ type: "STOP_RECORDING", sessionId });
   })();
 });
 
 browser.runtime.onMessage.addListener((message: Message) => {
   switch (message.type) {
+    case "AUDIO_LEVEL":
+      el.micBar.style.width = `${message.mic}%`;
+      el.tabBar.style.width = `${message.tab}%`;
+      return;
+    case "AUDIO_ALERT":
+      degraded = message.silent;
+      notice = message.silent
+        ? {
+            text:
+              message.source === "mic"
+                ? "Không nghe thấy giọng bạn — kiểm tra micro."
+                : "Không nghe thấy học sinh — kiểm tra âm thanh tab.",
+            tone: "error",
+          }
+        : null;
+      render();
+      return;
     case "RECORDING_STATE":
       if (message.state === "RECORDING") {
         notice = null;
-        view = { kind: "RECORDING", sessionId: message.sessionId };
+        // Không tin elapsedMs của message: rehydrate lấy startedAtMs đã persist,
+        // là mốc duy nhất sống sót qua việc đóng/mở popup và cái chết của
+        // service worker.
+        void rehydrate();
       } else if (message.state === "FAILED") {
-        notice = message.error ?? "Recording failed.";
-        view = { kind: "IDLE" };
+        notice = { text: message.error ?? "Ghi hình thất bại.", tone: "error" };
+        degraded = false;
+        enterView({ kind: "IDLE" });
       } else if (message.state === "FINALIZING") {
-        notice = "Recording saved.";
-        view = { kind: "IDLE" };
+        notice = { text: "Đã lưu bản ghi.", tone: "ok" };
+        degraded = false;
+        enterView({ kind: "IDLE" });
       }
-      render();
       return;
     case "GUARD_RESULT":
       if (message.allowed) return;
-      notice = guardFailureText(message);
-      view = { kind: "IDLE" };
-      render();
+      notice = { text: guardFailureText(message), tone: "error" };
+      enterView({ kind: "IDLE" });
       if (message.reason === "ALREADY_RECORDING") {
-        // Show the running session so Stop becomes reachable again.
-        void rehydrate().then(render);
+        // Hiện lại phiên đang chạy để nút Dừng với tới được.
+        void rehydrate();
       }
       return;
-    // Addressed to background, the offscreen document or a content script.
+    // Gửi cho background, offscreen hoặc content script.
     case "START_RECORDING":
     case "STOP_RECORDING":
     case "GET_RECORDING_STATE":
@@ -193,8 +282,6 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case "SET_MIC_MUTED":
     case "STORAGE_GET":
     case "STORAGE_SET":
-    case "AUDIO_ALERT":
-    case "AUDIO_LEVEL":
     case "VIDEO_STALLED":
     case "VIDEO_RECOVERED":
     case "STORAGE_ALERT":
@@ -204,6 +291,9 @@ browser.runtime.onMessage.addListener((message: Message) => {
       return assertNever(message);
   }
 });
+
+// Popup đóng là bị huỷ hẳn, nhưng clear interval tường minh vẫn đúng và rẻ.
+window.addEventListener("unload", stopClock);
 
 void (async () => {
   render();

@@ -1,13 +1,43 @@
 <!doctype html>
-<html>
+<html lang="vi">
   <head>
     <meta charset="utf-8" />
     <title>1Study Class Recorder</title>
   </head>
   <body>
-    <button id="start">Start</button>
-    <button id="stop">Stop</button>
-    <div id="status"></div>
+    <div class="app">
+      <header class="hdr">
+        <span class="brand">1Study Recorder</span>
+        <span id="chip" class="chip" hidden></span>
+      </header>
+
+      <main class="body">
+        <div id="clock" class="clock" hidden>00:00</div>
+
+        <div id="room" class="room" hidden>
+          <span class="room-label">Phòng</span>
+          <span id="room-code" class="room-code"></span>
+        </div>
+
+        <div id="levels" class="levels" hidden>
+          <div class="level">
+            <span class="level-label">Bạn</span>
+            <div class="meter"><div id="mic-bar" class="bar"></div></div>
+          </div>
+          <div class="level">
+            <span class="level-label">Học sinh</span>
+            <div class="meter"><div id="tab-bar" class="bar"></div></div>
+          </div>
+        </div>
+
+        <p id="message" class="message"></p>
+      </main>
+
+      <footer class="actions">
+        <button id="start" class="btn btn-primary" type="button">Bắt đầu ghi</button>
+        <button id="stop" class="btn btn-danger" type="button" hidden>Dừng ghi</button>
+      </footer>
+    </div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

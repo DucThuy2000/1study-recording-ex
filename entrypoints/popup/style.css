@@ -1,0 +1,103 @@
+@import '../../src/shared/theme.css';
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  width: 360px;
+  font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.app { display: flex; flex-direction: column; }
+
+.hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { font-weight: 600; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand);
+  white-space: nowrap;
+}
+.chip[data-degraded='true'] { background: var(--danger); }
+.chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+.clock {
+  font-size: 34px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  text-align: center;
+  color: var(--ink);
+}
+
+.room { display: flex; justify-content: space-between; align-items: baseline; }
+.room-label { color: var(--muted); font-size: 13px; }
+.room-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.levels { display: flex; flex-direction: column; gap: 9px; }
+.level { display: flex; align-items: center; gap: 10px; }
+.level-label { width: 66px; flex: none; font-size: 13px; color: var(--muted); }
+
+.meter {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--brand);
+  transition: width 120ms linear;
+}
+
+.message { margin: 0; font-size: 13px; color: var(--muted); }
+.message[data-tone='error'] { color: var(--danger); }
+.message[data-tone='ok'] { color: var(--ok); }
+
+.actions { padding: 0 16px 16px; }
+
+.btn {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
+
+.btn-danger { background: var(--surface); color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: #fef2f2; }

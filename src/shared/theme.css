@@ -1,0 +1,15 @@
+/*
+ * Nguồn duy nhất cho hệ màu. Pill trong tab Meet nhân bản đúng bộ giá trị này
+ * dưới dạng chuỗi style — shadow root không kế thừa stylesheet của trang, nên
+ * hai nơi phải sửa cùng lúc nếu đổi màu thương hiệu.
+ */
+:root {
+  --brand: #f97316;
+  --brand-dark: #ea580c;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --ink: #1f2937;
+  --muted: #6b7280;
+  --surface: #ffffff;
+  --line: #e5e7eb;
+}
