@@ -37,13 +37,13 @@ Nếu Google đổi 1 trong 4 (vd. đổi `jsname` giữa các lần deploy), 3 
 
 ### 3.2 Chặn click và hỏi xác nhận
 
-Trong `entrypoints/content.ts`, thêm 1 listener `click` ở **capture phase** trên `document` (Meet dùng jsaction, lắng nghe ở bubble phase — chặn ở capture + `stopImmediatePropagation` ngăn event tới tay Meet trước khi nó xử lý).
+Trong `entrypoints/content.ts`, thêm `watchLeaveButton(onLeaveClick)` — cùng kiểu với `watchMicMuteButton`/`watchCallEnded` đã có: `MutationObserver` trên `document.body` (`subtree` + `childList`), mỗi lần DOM đổi thì tìm lại nút (3.1) và gắn listener `click` lên **chính nút đó**, ở **capture phase**. Meet vẽ lại thanh điều khiển trong lúc chạy, nên nút có thể xuất hiện muộn hoặc bị thay bằng node mới — watcher gỡ listener khỏi node cũ và gắn sang node mới.
 
-Điều kiện chặn: **cả hai** đúng —
-- tab hiện tại đang được ghi (biến `activeSession` trong content.ts, cập nhật qua message `RECORDING_ACTIVE` đã có sẵn — chỉ thêm chỗ lưu `startedAtMs`, không thêm message mới)
-- `event.target` nằm trong nút Leave (theo 3.1)
+Không dùng listener `click` trên toàn `document`: watcher bám node đúng như hai watcher sẵn có, và không phải xét mọi cú click trong trang.
 
-Không đang ghi → không chặn gì, hành vi Meet giữ nguyên 100%.
+Listener nằm trên nút và ở capture phase nên chạy trước jsaction của Meet (đăng ký ở tổ tiên, bubble phase). `onLeaveClick` trả về `true` → `preventDefault()` + `stopImmediatePropagation()`, Meet không bao giờ thấy cú click; trả về `false` → thả cho Meet xử lý bình thường.
+
+`onLeaveClick` trả `false` (không chặn) khi: tab không đang ghi (biến `activeSession` trong content.ts, cập nhật qua message `RECORDING_ACTIVE` đã có sẵn — chỉ thêm chỗ lưu `startedAtMs`, không thêm message mới), hoặc cú click này do chính lời "Xác nhận" phát ra (cờ `suppressNextLeaveClick`).
 
 Khi chặn: `preventDefault()` + `stopImmediatePropagation()`, mở dialog xác nhận (3.3).
 
@@ -64,7 +64,7 @@ Bạn có chắc muốn kết thúc lớp học ngay lúc này không?
 - **Xác nhận**:
   1. Thêm comment `// TODO: call LMS api để force end lớp` đúng tại điểm xử lý (code, không phải UI).
   2. Đóng dialog.
-  3. Bật cờ tạm `suppressNextLeaveClick`, gọi `leaveButton.click()` — click giả lập này đi qua đúng listener ở 3.2 nhưng bị bỏ qua do cờ đang bật (reset ngay sau đó), nên lần này Meet nhận được click bình thường và tự xử lý rời cuộc gọi.
+  3. Bật cờ tạm `suppressNextLeaveClick`, gọi `button.click()` — click giả lập này đi qua đúng listener ở 3.2 nhưng bị thả (cờ đang bật, reset ngay sau đó), nên lần này Meet nhận được click bình thường và tự xử lý rời cuộc gọi.
 
 Không cần message mới tới background: `watchCallEnded` (đã có, phát hiện màn hình hậu-cuộc-gọi qua `data-call-ended`) sẽ tự gửi `MEETING_LEFT` và dừng ghi như luồng hiện tại — dialog chỉ chặn/trễ cú click gốc, không thay đổi cách phiên ghi kết thúc.
 

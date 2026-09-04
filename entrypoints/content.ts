@@ -3,6 +3,10 @@ import { browser } from "wxt/browser";
 import { createLogger } from "@/src/core/logger";
 import { assertNever } from "@/src/core/assert";
 import { StatusPill } from "@/src/content-logic/status-pill";
+import {
+  findLeaveButton,
+  LeaveConfirmDialog,
+} from "@/src/content-logic/detect-leave-action";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
 
 const logger = createLogger("content");
@@ -27,6 +31,33 @@ function watchMicMuteButton(onChange: (muted: boolean) => void): void {
     childList: true,
     attributes: true,
     attributeFilter: ["data-is-muted"],
+  });
+}
+
+function watchLeaveButton(
+  onLeaveClick: (button: HTMLButtonElement) => boolean,
+): void {
+  let attached: HTMLButtonElement | undefined;
+
+  function handleClick(event: MouseEvent): void {
+    if (!attached) return;
+    if (!onLeaveClick(attached)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function checkAndAttach(): void {
+    const button = findLeaveButton(document);
+    if (!button || button === attached) return;
+    attached?.removeEventListener("click", handleClick, true);
+    attached = button;
+    button.addEventListener("click", handleClick, true);
+  }
+
+  checkAndAttach();
+  new MutationObserver(checkAndAttach).observe(document.body, {
+    subtree: true,
+    childList: true,
   });
 }
 
@@ -61,7 +92,29 @@ export default defineContentScript({
     logger.info("content script loaded", { url: location.href });
 
     const pill = new StatusPill();
+    const leaveConfirmDialog = new LeaveConfirmDialog();
     let lastKnownMicMuted = false;
+    let activeSession: { startedAtMs: number } | null = null;
+    let suppressNextLeaveClick = false;
+
+    watchLeaveButton((button) => {
+      // on clicking confirm button -> let meet end the meeting
+      if (suppressNextLeaveClick) {
+        suppressNextLeaveClick = false;
+        return false;
+      }
+      // no active session -> no check
+      if (!activeSession) return false;
+
+      const elapsedMs = Date.now() - activeSession.startedAtMs;
+      void leaveConfirmDialog.show(elapsedMs).then((confirmed) => {
+        if (!confirmed) return;
+        // TODO: call LMS api để force end lớp
+        suppressNextLeaveClick = true;
+        button.click();
+      });
+      return true;
+    });
 
     watchCallEnded(() => {
       logger.info("Meet showed its post-call screen");
@@ -87,6 +140,7 @@ export default defineContentScript({
           type: "GET_RECORDING_STATE",
         });
         if (response?.activeForSenderTab && response.session) {
+          activeSession = { startedAtMs: response.session.startedAtMs };
           pill.mount(response.session.startedAtMs);
         }
       } catch (error) {
@@ -100,6 +154,7 @@ export default defineContentScript({
       switch (message.type) {
         case "RECORDING_ACTIVE":
           if (message.active && message.startedAtMs !== null) {
+            activeSession = { startedAtMs: message.startedAtMs };
             pill.mount(message.startedAtMs);
             // The offscreen document's mic starts unmuted regardless of
             // Meet's actual state at that moment (teachers commonly mute
@@ -109,7 +164,7 @@ export default defineContentScript({
               muted: lastKnownMicMuted,
             } satisfies Message);
           } else {
-            // Xác nhận rồi mới biến mất, thay vì lặng lẽ mất hút.
+            activeSession = null;
             pill.showStopped();
           }
           return;

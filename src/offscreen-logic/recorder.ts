@@ -1,4 +1,4 @@
-import { pickMimeType, CONFIG, type TierName } from "../shared/config";
+import { pickMimeType, CONFIG } from "../shared/config";
 import { ChunkWriter, type ChunkWriterLike } from "./chunk-writer";
 import { MemoryChunkBuffer } from "../core/chunk-buffer";
 import { createLogger } from "../core/logger";
@@ -30,7 +30,6 @@ export class SessionRecorder {
   constructor(
     private readonly sessionId: string,
     private readonly stream: MediaStream,
-    private readonly tier: TierName,
     private readonly callbacks: SessionRecorderCallbacks = {},
     writer: ChunkWriterLike = new ChunkWriter(sessionId),
   ) {
@@ -39,7 +38,7 @@ export class SessionRecorder {
   }
 
   start(): void {
-    const tierConfig = CONFIG.TIERS[this.tier];
+    const tierConfig = CONFIG.TIERS["LOW"];
     const mimeType = pickMimeType(tierConfig.codecs);
     this.mediaRecorder = new MediaRecorder(this.stream, {
       mimeType,
@@ -53,7 +52,10 @@ export class SessionRecorder {
       const bytes = event.data.size;
 
       if (this.storageMode === "memory") {
-        if (!this.memoryBuffer.push(index, event.data) && !this.memoryBufferFullReported) {
+        if (
+          !this.memoryBuffer.push(index, event.data) &&
+          !this.memoryBufferFullReported
+        ) {
           this.memoryBufferFullReported = true;
           this.callbacks.onMemoryBufferFull?.();
         }
@@ -71,12 +73,18 @@ export class SessionRecorder {
           // 60-minute class would just fail the same way each time — fall
           // back to the memory buffer instead, once, and stay there
           // (R12: keep recording, never stop for a storage failure).
-          if (error instanceof DOMException && error.name === "InvalidStateError") {
+          if (
+            error instanceof DOMException &&
+            error.name === "InvalidStateError"
+          ) {
             if (this.storageMode === "opfs") {
               this.storageMode = "memory";
               this.callbacks.onStorageDegraded?.(error);
             }
-            if (!this.memoryBuffer.push(index, event.data) && !this.memoryBufferFullReported) {
+            if (
+              !this.memoryBuffer.push(index, event.data) &&
+              !this.memoryBufferFullReported
+            ) {
               this.memoryBufferFullReported = true;
               this.callbacks.onMemoryBufferFull?.();
             }
@@ -89,7 +97,6 @@ export class SessionRecorder {
     logger.info("recording started", {
       sessionId: this.sessionId,
       mimeType,
-      tier: this.tier,
     });
   }
 
@@ -121,7 +128,9 @@ export class SessionRecorder {
       });
     }
 
-    const blob = new Blob([opfsBlob, ...memoryChunks.map((c) => c.blob)], { type: "video/webm" });
+    const blob = new Blob([opfsBlob, ...memoryChunks.map((c) => c.blob)], {
+      type: "video/webm",
+    });
     return { blob, missingChunkIndices };
   }
 }

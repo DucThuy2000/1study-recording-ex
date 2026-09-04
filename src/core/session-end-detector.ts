@@ -1,5 +1,5 @@
 import type { ActiveSessionInfo } from "../shared/messages";
-import { extractMeetingCode } from "./meeting-code";
+import { extractMeetingCode } from "../shared/utils";
 
 export type SessionEndReason = "USER_STOPPED" | "TAB_CLOSED" | "MEETING_LEFT";
 

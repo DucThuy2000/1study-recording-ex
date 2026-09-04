@@ -15,7 +15,7 @@ import {
 import { ChromeStorageAdapter } from "@/src/adapters/storage";
 import { CONFIG } from "@/src/shared/config";
 import { createLogger } from "@/src/core/logger";
-import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
+import { isMeetUrl, extractMeetingCode } from "@/src/shared/utils";
 import { evaluateGuard } from "@/src/core/tab-guard";
 import {
   evaluateTabRemoved,
@@ -32,7 +32,6 @@ import {
 import { EventReporter } from "@/src/core/event-reporter";
 import { EventBus } from "@/src/core/event-bus";
 import type { RecordingEvent } from "@/src/core/event-reporter";
-
 const logger = createLogger("background");
 const tabCapture = new ChromeTabCaptureApi();
 const offscreen = new ChromeOffscreenApi();
@@ -188,19 +187,13 @@ async function handleStart(
   }
 
   const tab = await browser.tabs.get(message.tabId);
-  const guard = evaluateGuard(
-    isMeetUrl(tab.url ?? ""),
-    extractMeetingCode(tab.url ?? ""),
-    undefined,
-  );
+  const meetingCode = extractMeetingCode(tab.url ?? "")!;
+  const guard = evaluateGuard(isMeetUrl(tab.url ?? ""), meetingCode, undefined);
+
   if (!guard.allowed) {
     await refuseStart(guard.reason);
     return;
   }
-
-  // Guard đã bảo đảm đây là tab Meet có mã phòng hợp lệ, nên giá trị này
-  // không thể null — tính một lần ở đây thay vì ép kiểu ở từng chỗ dùng.
-  const meetingCode = extractMeetingCode(tab.url ?? "")!;
 
   // Prevent client's device run out of disk spaces
   const { quota, usage } = await navigator.storage.estimate();

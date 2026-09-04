@@ -4,7 +4,7 @@ import type {
   MessageOf,
   MicPermissionStateResponse,
 } from "@/src/shared/messages";
-import { CONFIG, type TierName } from "@/src/shared/config";
+import { CONFIG } from "@/src/shared/config";
 import { SessionRecorder } from "@/src/offscreen-logic/recorder";
 import {
   mixTabAndMic,
@@ -20,8 +20,7 @@ import {
 } from "@/src/core/state-machine";
 import { MessagingStorageAdapter } from "@/src/adapters/messaging-storage";
 import { createLogger } from "@/src/core/logger";
-import { pickDeviceTier } from "@/src/core/device-tier";
-import { levelToPercent } from "@/src/core/rms";
+import { levelToPercent } from "@/src/shared/utils";
 import { assertNever } from "@/src/core/assert";
 import { isErr, type Result } from "@/src/core/result";
 import type { RecordingEvent } from "@/src/core/event-reporter";
@@ -111,14 +110,8 @@ function logTransition(result: Result<SessionState, string>): void {
     logger.error("state transition rejected", { error: result.error });
 }
 
-async function openTabStream(
-  streamId: string,
-  tier: TierName,
-): Promise<MediaStream> {
-  // The tier's resolution/fps have to be requested here, on the tab stream
-  // itself — MediaRecorder only controls bitrate, so without these a LOW-tier
-  // machine would still capture and encode at the tab's native size (R11).
-  const { width, height, fps } = CONFIG.TIERS[tier];
+async function openTabStream(streamId: string): Promise<MediaStream> {
+  const { width, height, fps } = CONFIG.TIERS["LOW"];
   return navigator.mediaDevices.getUserMedia({
     audio: {
       mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId },
@@ -208,24 +201,8 @@ async function startRecording(
   activeStartedAtMs = Date.now();
 
   try {
-    // Tier first: it decides the capture constraints, so it cannot be computed
-    // after the stream is already open.
-    const tier = pickDeviceTier({
-      hardwareConcurrency: navigator.hardwareConcurrency,
-      deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number })
-        .deviceMemory,
-    });
+    activeTabStream = await openTabStream(streamId);
 
-    activeTabStream = await openTabStream(streamId, tier);
-
-    // Lưới an toàn cho việc tự dừng. Background cũng phát hiện đóng tab và
-    // rời cuộc họp (session-end-detector), nhưng lớp này không phụ thuộc vào
-    // listener nào của service worker còn sống, cũng không phụ thuộc vào việc
-    // Meet có đổi URL hay không — track chết là sự thật của tầng media.
-    //
-    // Dùng lại đúng stopRecording: cùng đường finalize, cùng
-    // releaseSessionHandles(), cùng window.close(). Gọi hai lần vô hại vì
-    // stopRecording rơi vào nhánh "unknown session" khi phiên đã dọn xong.
     activeTabStream.getVideoTracks()[0]?.addEventListener("ended", () => {
       logger.warn("captured video track ended — stopping the session", {
         sessionId,
@@ -246,7 +223,7 @@ async function startRecording(
     logTransition(await activeStateMachine.transition("READY", "preflight ok"));
     logTransition(await activeStateMachine.transition("RECORDING", "start"));
 
-    activeRecorder = new SessionRecorder(sessionId, mixedStream, tier, {
+    activeRecorder = new SessionRecorder(sessionId, mixedStream, {
       onChunkWritten: (_index, bytes) =>
         sessionLedger.recordChunk(sessionId, bytes),
       onStorageDegraded: (error) => {
@@ -309,8 +286,6 @@ async function startRecording(
         });
       },
       (rms) => {
-        // Thanh về 0 khi đang mute là cố ý: bản ghi lúc đó thật sự không có
-        // tiếng giáo viên (micGain.gain.value = 0), thanh phải nói đúng sự thật.
         lastMicPercent = micMuted ? 0 : levelToPercent(rms);
       },
     );
@@ -333,8 +308,6 @@ async function startRecording(
     micMonitor.start();
     tabMonitor.start();
 
-    // Một message gộp thay vì hai luồng riêng: popup vẽ cả hai thanh trong
-    // cùng một khung hình, và số message giảm một nửa.
     levelBroadcastIntervalId = setInterval(() => {
       void notify({
         type: "AUDIO_LEVEL",
@@ -373,7 +346,7 @@ async function startRecording(
       );
     }, CONFIG.DISK_CHECK_INTERVAL_MS);
 
-    logger.info("offscreen recording started", { sessionId, tier });
+    logger.info("offscreen recording started", { sessionId });
     await notify({
       type: "RECORDING_STATE",
       sessionId,

@@ -3,7 +3,7 @@ import { browser } from "wxt/browser";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
 import { getActiveTab } from "@/src/adapters/chrome-api";
 import { createLogger } from "@/src/core/logger";
-import { isMeetUrl, extractMeetingCode } from "@/src/core/meeting-code";
+import { isMeetUrl, extractMeetingCode } from "@/src/shared/utils";
 import { evaluateGuard } from "@/src/core/tab-guard";
 import { formatClock } from "@/src/core/time-format";
 import { assertNever } from "@/src/core/assert";
@@ -154,9 +154,6 @@ async function applyGuard(): Promise<void> {
   );
   if (guard.allowed) {
     guardAllowed = true;
-    // Chỉ lấy mã phòng của tab đang active khi KHÔNG có phiên nào chạy. Đang
-    // ghi mà mở popup từ một tab Meet khác thì mã phòng phải là của phiên
-    // đang ghi, không phải của tab đang nhìn.
     if (view.kind === "IDLE") roomCode = actualCode;
     guardMessage = "Sẵn sàng ghi tab Meet này.";
     return;

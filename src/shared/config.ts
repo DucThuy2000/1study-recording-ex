@@ -2,8 +2,8 @@ export const CONFIG = {
   CHUNK_MS: 5000,
   UPLOAD_RATE_IN_CLASS_BPS: 900_000,
   UPLOAD_RATE_MAX_BPS: 1_500_000,
-  DISK_MIN_FREE_BYTES: 3 * 1024 ** 3,
-  BACKLOG_MAX_BYTES: 5 * 1024 ** 3,
+  DISK_MIN_FREE_BYTES: 1 * 1024 ** 3, // 1GB
+  BACKLOG_MAX_BYTES: 2 * 1024 ** 3, // 2GB
   DISK_CHECK_INTERVAL_MS: 60_000,
   SILENCE_ALERT_SECONDS: 60,
   SILENCE_CHECK_INTERVAL_SECONDS: 10,
@@ -14,15 +14,9 @@ export const CONFIG = {
   FRAME_MONITOR_POLL_MS: 1000,
   SILENCE_RMS_THRESHOLD: 0.01,
   LEVEL_SAMPLE_MS: 250,
-  /**
-   * Trần RMS ánh xạ thành 100% trên thanh mức âm. Giọng nói bình thường qua
-   * micro có xử lý nằm khoảng 0.01–0.25; lấy trần cao hơn nữa thì thanh dính
-   * đáy và giáo viên tưởng máy không nghe thấy mình.
-   */
   LEVEL_CEILING_RMS: 0.25,
   EVENT_QUEUE_MAX_PENDING: 500,
   STARTING_ACK_TIMEOUT_MS: 15_000,
-  /** Pill giữ lời xác nhận "đã dừng ghi" bao lâu trước khi tự biến mất. */
   STOPPED_NOTICE_MS: 6000,
   DEVICE_TIER_THRESHOLDS: {
     lowMaxCores: 4,
@@ -32,11 +26,11 @@ export const CONFIG = {
   },
   TIERS: {
     LOW: {
-      width: 854,
-      height: 480,
-      fps: 12,
+      width: 1280,
+      height: 720,
+      fps: 10,
       bitrate: 600_000,
-      codecs: ["vp8"],
+      codecs: ["vp9", "vp8"],
     },
     MID: {
       width: 1280,
@@ -54,8 +48,6 @@ export const CONFIG = {
     },
   },
 } as const;
-
-export type TierName = keyof typeof CONFIG.TIERS;
 
 export function pickMimeType(codecs: readonly string[]): string {
   const candidates = [
