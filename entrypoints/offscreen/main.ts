@@ -498,6 +498,8 @@ browser.runtime.onMessage.addListener(
       case "STORAGE_ALERT":
       case "RECORDING_ACTIVE":
       case "GUARD_RESULT":
+      case "LMS_GET_CONTEXT":
+      case "LMS_END_CLASS":
         return false;
       default:
         return assertNever(message);

@@ -14,9 +14,19 @@
       <main class="body">
         <div id="clock" class="clock" hidden>00:00</div>
 
+        <div id="class-info" class="class-info" hidden>
+          <span class="class-label">Lớp học</span>
+          <span id="class-name" class="class-name"></span>
+        </div>
+
         <div id="room" class="room" hidden>
           <span class="room-label">Phòng</span>
           <span id="room-code" class="room-code"></span>
+        </div>
+
+        <div id="materials" class="materials" hidden>
+          <span class="materials-title">Tài liệu học</span>
+          <div id="materials-list" class="materials-list"></div>
         </div>
 
         <div id="levels" class="levels" hidden>
@@ -31,6 +41,8 @@
         </div>
 
         <p id="message" class="message"></p>
+
+        <button id="login-btn" class="btn btn-secondary" type="button" hidden>Đăng nhập 1Study</button>
       </main>
 
       <footer class="actions">

@@ -13,6 +13,13 @@ describe('InMemoryStore', () => {
     const store = new InMemoryStore();
     expect(await store.get('missing')).toBeUndefined();
   });
+
+  it('deletes a key', async () => {
+    const store = new InMemoryStore();
+    await store.set('key', { a: 1 });
+    await store.delete('key');
+    expect(await store.get('key')).toBeUndefined();
+  });
 });
 
 describe('ChromeStorageAdapter', () => {
@@ -23,4 +30,12 @@ describe('ChromeStorageAdapter', () => {
     await store.set('key', { a: 1 });
     expect(await store.get('key')).toEqual({ a: 1 });
   });
+
+  it('deletes a key through browser.storage.local', async () => {
+    const store = new ChromeStorageAdapter();
+    await store.set('key', { a: 1 });
+    await store.delete('key');
+    expect(await store.get('key')).toBeUndefined();
+  });
 });
+

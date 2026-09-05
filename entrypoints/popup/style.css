@@ -81,6 +81,27 @@ body {
   color: var(--ink);
 }
 
+.class-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.class-label {
+  color: var(--muted);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.class-name {
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .room {
   display: flex;
   justify-content: space-between;
@@ -94,6 +115,60 @@ body {
 
 .room-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.materials {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid var(--line);
+}
+
+.materials-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.material-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.material-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.material-links {
+  display: flex;
+  gap: 4px;
+}
+
+.material-link {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--brand);
+  text-decoration: none;
+}
+
+.material-link:hover {
+  background: #fff7ed;
+  border-color: var(--brand);
 }
 
 .levels {
@@ -181,4 +256,15 @@ body {
 
 .btn-danger:hover:not(:disabled) {
   background: #fef2f2;
+}
+
+.btn-secondary {
+  margin-top: 8px;
+  background: var(--surface);
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #fff7ed;
 }

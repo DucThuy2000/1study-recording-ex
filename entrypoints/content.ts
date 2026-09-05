@@ -107,11 +107,25 @@ export default defineContentScript({
       if (!activeSession) return false;
 
       const elapsedMs = Date.now() - activeSession.startedAtMs;
-      void leaveConfirmDialog.show(elapsedMs).then((confirmed) => {
+      void leaveConfirmDialog.show(elapsedMs).then(async (confirmed) => {
         if (!confirmed) return;
-        // TODO: call LMS api để force end lớp
-        suppressNextLeaveClick = true;
-        button.click();
+
+        leaveConfirmDialog.setLoading(true);
+
+        try {
+          await Promise.race([
+            browser.runtime.sendMessage({
+              type: "LMS_END_CLASS",
+            } satisfies Message),
+            new Promise((resolve) => setTimeout(resolve, 2500)),
+          ]);
+        } catch (err) {
+          logger.warn("LMS_END_CLASS error or timeout", { error: String(err) });
+        } finally {
+          leaveConfirmDialog.unmount();
+          suppressNextLeaveClick = true;
+          button.click();
+        }
       });
       return true;
     });
@@ -203,6 +217,8 @@ export default defineContentScript({
         case "START_RECORDING":
         case "STOP_RECORDING":
         case "GET_RECORDING_STATE":
+        case "LMS_GET_CONTEXT":
+        case "LMS_END_CLASS":
         // This script sends MIC_MUTE_CHANGED rather than receiving it, and
         // never sees SET_MIC_MUTED at all (background → offscreen only).
         case "MIC_MUTE_CHANGED":

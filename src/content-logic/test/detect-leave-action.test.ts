@@ -83,37 +83,95 @@ describe('LeaveConfirmDialog', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders the elapsed minutes, rounded down', () => {
+  it('renders the title, elapsed minutes chip, message, and disclaimer', () => {
     void dialog.show(45 * 60_000 + 30_000);
-    expect(shadow().querySelector('.message')?.textContent).toContain(
-      '45 phút',
+    const root = shadow();
+
+    expect(root.querySelector('.title')?.textContent).toBe('Kết thúc lớp học');
+    expect(root.querySelector('.chip')?.textContent).toBe(
+      'Thời gian đã ghi: 45 phút',
+    );
+    expect(root.querySelector('.message')?.textContent).toBe(
+      'Bạn có chắc muốn kết thúc lớp học ngay lúc này không?',
+    );
+    expect(root.querySelector('.disclaimer')?.textContent).toBe(
+      'Hệ thống sẽ kết thúc cuộc gọi cho tất cả học sinh và hoàn tất bản ghi hình.',
     );
   });
 
-  it('resolves true and unmounts when Xác nhận is clicked', async () => {
+  it('resolves true when Kết thúc lớp is clicked and keeps mounted for loading', async () => {
     const result = dialog.show(0);
-    shadow()
-      .querySelector<HTMLButtonElement>('.confirm')
-      ?.click();
+    const confirmBtn = shadow().querySelector<HTMLButtonElement>('.confirm');
+    expect(confirmBtn?.textContent).toBe('Kết thúc lớp');
+
+    confirmBtn?.click();
 
     await expect(result).resolves.toBe(true);
-    expect(document.querySelector(HOST)).toBeNull();
+    expect(document.querySelector(HOST)).not.toBeNull();
   });
 
   it('resolves false and unmounts when Huỷ is clicked', async () => {
     const result = dialog.show(0);
-    shadow()
-      .querySelector<HTMLButtonElement>('.cancel')
-      ?.click();
+    const cancelBtn = shadow().querySelector<HTMLButtonElement>('.cancel');
+    expect(cancelBtn?.textContent).toBe('Huỷ');
+
+    cancelBtn?.click();
 
     await expect(result).resolves.toBe(false);
     expect(document.querySelector(HOST)).toBeNull();
   });
 
-  it('resolves false when the backdrop is clicked', async () => {
+  it('resolves false and unmounts when the backdrop is clicked', async () => {
     const result = dialog.show(0);
     shadow().querySelector<HTMLDivElement>('.overlay')?.click();
 
     await expect(result).resolves.toBe(false);
+    expect(document.querySelector(HOST)).toBeNull();
+  });
+
+  it('updates button state when setLoading is called', () => {
+    void dialog.show(0);
+    const confirmBtn = shadow().querySelector<HTMLButtonElement>('.confirm');
+    const cancelBtn = shadow().querySelector<HTMLButtonElement>('.cancel');
+    expect(confirmBtn?.disabled).toBe(false);
+    expect(confirmBtn?.textContent).toBe('Kết thúc lớp');
+    expect(cancelBtn?.disabled).toBe(false);
+
+    dialog.setLoading(true);
+    expect(confirmBtn?.disabled).toBe(true);
+    expect(confirmBtn?.textContent).toBe('Đang kết thúc...');
+    expect(cancelBtn?.disabled).toBe(true);
+
+    dialog.setLoading(false);
+    expect(confirmBtn?.disabled).toBe(false);
+    expect(confirmBtn?.textContent).toBe('Kết thúc lớp');
+    expect(cancelBtn?.disabled).toBe(false);
+  });
+
+  it('ignores clicks while loading', async () => {
+    let settled = false;
+    const result = dialog.show(0).then((val) => {
+      settled = true;
+      return val;
+    });
+
+    dialog.setLoading(true);
+    shadow().querySelector<HTMLDivElement>('.overlay')?.click();
+    shadow().querySelector<HTMLButtonElement>('.cancel')?.click();
+    shadow().querySelector<HTMLButtonElement>('.confirm')?.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+
+    dialog.setLoading(false);
+    shadow().querySelector<HTMLButtonElement>('.cancel')?.click();
+    await expect(result).resolves.toBe(false);
+  });
+
+  it('unmounts cleanly from DOM', () => {
+    void dialog.show(0);
+    expect(document.querySelector(HOST)).not.toBeNull();
+    dialog.unmount();
+    expect(document.querySelector(HOST)).toBeNull();
   });
 });

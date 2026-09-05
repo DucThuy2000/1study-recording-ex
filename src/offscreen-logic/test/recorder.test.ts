@@ -136,7 +136,7 @@ function startRecorder(
   writer: ChunkWriterLike,
   callbacks: SessionRecorderCallbacks = {},
 ): { recorder: SessionRecorder; mr: FakeMediaRecorder } {
-  const recorder = new SessionRecorder('s1', {} as MediaStream, 'MID', callbacks, writer);
+  const recorder = new SessionRecorder('s1', {} as MediaStream, callbacks, writer);
   recorder.start();
   const mr = FakeMediaRecorder.instances[FakeMediaRecorder.instances.length - 1]!;
   return { recorder, mr };

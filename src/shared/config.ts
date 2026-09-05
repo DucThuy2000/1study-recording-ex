@@ -47,6 +47,17 @@ export const CONFIG = {
       codecs: ["vp9", "vp8"],
     },
   },
+  LMS_API: () => {
+    let root = "https://learning-stg.1study.vn/"; // will be replaced by prod endpoint, cuz stg no need to recording anything
+    if (import.meta.env.MODE === "development")
+      root = "https://1study-lms-local.edu/";
+
+    return {
+      root,
+      meet_context: root + "local/onestudy/meet/context.php",
+      end_class: root + "local/onestudy/meet/end_class.php",
+    };
+  },
 } as const;
 
 export function pickMimeType(codecs: readonly string[]): string {

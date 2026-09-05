@@ -16,7 +16,9 @@ import { ChromeStorageAdapter } from "@/src/adapters/storage";
 import { CONFIG } from "@/src/shared/config";
 import { createLogger } from "@/src/core/logger";
 import { isMeetUrl, extractMeetingCode } from "@/src/shared/utils";
-import { evaluateGuard } from "@/src/core/tab-guard";
+import { ApiService } from "@/src/core/api-service";
+import { LmsAdapter } from "@/src/adapters/lms/lms-adapter";
+import type { LmsGuardResult } from "@/src/adapters/lms/types";
 import {
   evaluateTabRemoved,
   evaluateTabUrlChange,
@@ -42,6 +44,11 @@ const backgroundEventReporter = new EventReporter(
   new EventBus<{ event: RecordingEvent }>(),
   logger,
 );
+const lmsApiService = new ApiService({
+  credentials: "include",
+  defaultHeaders: { Accept: "application/json" },
+});
+const lmsAdapter = new LmsAdapter(store, lmsApiService, logger);
 
 /**
  * Active-session ownership lives here and nowhere else, persisted rather than
@@ -187,11 +194,15 @@ async function handleStart(
   }
 
   const tab = await browser.tabs.get(message.tabId);
-  const meetingCode = extractMeetingCode(tab.url ?? "")!;
-  const guard = evaluateGuard(isMeetUrl(tab.url ?? ""), meetingCode, undefined);
+  const meetingCode = extractMeetingCode(tab.url ?? "");
+  if (!tab.url || !isMeetUrl(tab.url) || !meetingCode) {
+    await refuseStart("NOT_MEET_TAB");
+    return;
+  }
 
-  if (!guard.allowed) {
-    await refuseStart(guard.reason);
+  const lmsGuard: LmsGuardResult = await lmsAdapter.ensureContext(meetingCode);
+  if (!lmsGuard.allowed) {
+    await refuseStart(lmsGuard.reason, lmsGuard.detail);
     return;
   }
 
@@ -242,6 +253,7 @@ async function handleStart(
       meetingCode,
       status: "STARTING",
       startedAtMs: Date.now(),
+      classroomId: lmsGuard.context.classroomId,
     });
     await sessionLedger.start({
       sessionId,
@@ -484,6 +496,30 @@ export default defineBackground(() => {
               sendResponse(response),
             ),
             "state query",
+          );
+          return true;
+        case "LMS_GET_CONTEXT":
+          run(
+            lmsAdapter
+              .ensureContext(message.meetingCode)
+              .then((result) => sendResponse(result)),
+            "lms get context",
+          );
+          return true;
+        case "LMS_END_CLASS":
+          run(
+            (async () => {
+              const active = await readActiveSession();
+              const cached = await lmsAdapter.getCachedContext();
+              const classroomId = active?.classroomId ?? cached?.classroomId;
+              let result: { success: boolean; error?: string } = { success: true };
+              if (classroomId) {
+                result = await lmsAdapter.endClass(classroomId);
+              }
+              await lmsAdapter.clearContext();
+              sendResponse(result);
+            })(),
+            "lms end class",
           );
           return true;
         case "STORAGE_GET":

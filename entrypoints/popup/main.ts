@@ -1,20 +1,30 @@
 import "./style.css";
 import { browser } from "wxt/browser";
 import type { Message, RecordingStateResponse } from "@/src/shared/messages";
+import type { TeachingMaterial } from "@/src/adapters/lms/types";
 import { getActiveTab } from "@/src/adapters/chrome-api";
 import { createLogger } from "@/src/core/logger";
-import { isMeetUrl, extractMeetingCode } from "@/src/shared/utils";
-import { evaluateGuard } from "@/src/core/tab-guard";
 import { formatClock } from "@/src/core/time-format";
 import { assertNever } from "@/src/core/assert";
+import {
+  getLoginUrl,
+  getGuardFailureMessage,
+  applyLmsGuard,
+  type PopupState,
+} from "@/src/popup-logic";
 
 const logger = createLogger("popup");
 
 const el = {
   chip: document.querySelector<HTMLSpanElement>("#chip")!,
   clock: document.querySelector<HTMLDivElement>("#clock")!,
+  classInfo: document.querySelector<HTMLDivElement>("#class-info")!,
+  className: document.querySelector<HTMLSpanElement>("#class-name")!,
   room: document.querySelector<HTMLDivElement>("#room")!,
   roomCode: document.querySelector<HTMLSpanElement>("#room-code")!,
+  materials: document.querySelector<HTMLDivElement>("#materials")!,
+  materialsList: document.querySelector<HTMLDivElement>("#materials-list")!,
+  loginBtn: document.querySelector<HTMLButtonElement>("#login-btn")!,
   levels: document.querySelector<HTMLDivElement>("#levels")!,
   micBar: document.querySelector<HTMLDivElement>("#mic-bar")!,
   tabBar: document.querySelector<HTMLDivElement>("#tab-bar")!,
@@ -35,6 +45,9 @@ let view: PopupView = { kind: "IDLE" };
 let guardAllowed = false;
 let guardMessage = "Đang kiểm tra tab này…";
 let roomCode: string | null = null;
+let currentClassName: string | null = null;
+let currentMaterials: TeachingMaterial[] = [];
+let showLoginBtn = false;
 let notice: { text: string; tone: Tone } | null = null;
 let degraded = false;
 let clockIntervalId: ReturnType<typeof setInterval> | undefined;
@@ -75,6 +88,13 @@ function render(): void {
 
   el.room.hidden = roomCode === null;
   if (roomCode) el.roomCode.textContent = roomCode;
+
+  el.classInfo.hidden = !currentClassName;
+  if (currentClassName) el.className.textContent = currentClassName;
+
+  el.materials.hidden = currentMaterials.length === 0;
+
+  el.loginBtn.hidden = !showLoginBtn || view.kind !== "IDLE";
 
   el.start.hidden = recording || view.kind === "STOPPING";
   el.stop.hidden = !el.start.hidden;
@@ -146,55 +166,46 @@ async function rehydrate(): Promise<void> {
 
 async function applyGuard(): Promise<void> {
   const tab = await getActiveTab();
-  const actualCode = tab ? extractMeetingCode(tab.url) : null;
-  const guard = evaluateGuard(
-    !!tab && isMeetUrl(tab.url),
-    actualCode,
-    undefined,
-  );
-  if (guard.allowed) {
-    guardAllowed = true;
-    if (view.kind === "IDLE") roomCode = actualCode;
-    guardMessage = "Sẵn sàng ghi tab Meet này.";
-    return;
-  }
-  guardAllowed = false;
-  guardMessage =
-    guard.reason === "NOT_MEET_TAB"
-      ? "Mở tab Google Meet của lớp rồi bấm lại vào biểu tượng extension."
-      : `Mã phòng của tab này (${guard.actualCode}) không khớp lớp đã lên lịch. Xác nhận trước khi ghi.`;
-}
+  const state: PopupState = {
+    guardAllowed,
+    guardMessage,
+    roomCode,
+    currentClassName,
+    currentMaterials,
+    showLoginBtn,
+  };
 
-function guardFailureText(
-  message: Extract<Message, { type: "GUARD_RESULT" }>,
-): string {
-  switch (message.reason) {
-    case "ALREADY_RECORDING":
-      return "Đang có một phiên ghi chạy. Bấm Dừng ghi để kết thúc phiên đó trước.";
-    case "NOT_MEET_TAB":
-      return "Mở tab Google Meet của lớp rồi bấm lại vào biểu tượng extension.";
-    case "MEETING_CODE_MISMATCH":
-      return "Mã phòng của tab này không khớp lớp đã lên lịch.";
-    case "START_FAILED":
-      return `Không bắt đầu ghi được: ${message.detail ?? "lỗi không xác định"}`;
-    case "MIC_PERMISSION_NEEDED":
-      return "Cấp quyền micro ở tab vừa mở, rồi bấm Bắt đầu ghi lại.";
-    case "MIC_PERMISSION_DENIED":
-      return "Quyền micro đang bị chặn. Mở chrome://settings/content/microphone để bỏ chặn rồi thử lại.";
-    case "LOW_DISK":
-      return (
-        message.detail ??
-        "Ổ đĩa sắp đầy — cần giải phóng dung lượng trước khi ghi."
-      );
-    case "BACKLOG_HIGH":
-      return (
-        message.detail ??
-        "Bản ghi cũ tồn đọng quá nhiều, chưa được tải lên — mở Chrome để tự động tải lên rồi thử lại."
-      );
-    case undefined:
-      return "Không bắt đầu ghi được.";
-    default:
-      return assertNever(message.reason);
+  try {
+    await applyLmsGuard(
+      tab?.url,
+      (msg) => browser.runtime.sendMessage(msg),
+      state,
+      {
+        classInfo: el.classInfo,
+        className: el.className,
+        materials: el.materials,
+        materialsList: el.materialsList,
+        loginBtn: el.loginBtn,
+      },
+      view.kind === "IDLE",
+    );
+  } catch (error) {
+    logger.error("could not check LMS context", { error: String(error) });
+    state.guardAllowed = false;
+    state.currentClassName = null;
+    state.currentMaterials = [];
+    state.showLoginBtn = false;
+    el.classInfo.hidden = true;
+    el.materials.hidden = true;
+    el.loginBtn.hidden = true;
+    state.guardMessage = getGuardFailureMessage("NETWORK_ERROR");
+  } finally {
+    guardAllowed = state.guardAllowed;
+    guardMessage = state.guardMessage;
+    roomCode = state.roomCode;
+    currentClassName = state.currentClassName;
+    currentMaterials = state.currentMaterials;
+    showLoginBtn = state.showLoginBtn;
   }
 }
 
@@ -222,6 +233,11 @@ el.stop.addEventListener("click", () => {
     enterView({ kind: "STOPPING", sessionId });
     await browser.runtime.sendMessage({ type: "STOP_RECORDING", sessionId });
   })();
+});
+
+el.loginBtn.addEventListener("click", () => {
+  const url = getLoginUrl();
+  void browser.tabs.create({ url });
 });
 
 browser.runtime.onMessage.addListener((message: Message) => {
@@ -259,7 +275,11 @@ browser.runtime.onMessage.addListener((message: Message) => {
       return;
     case "GUARD_RESULT":
       if (message.allowed) return;
-      notice = { text: guardFailureText(message), tone: "error" };
+      notice = {
+        text: getGuardFailureMessage(message.reason, message.detail),
+        tone: "error",
+      };
+      showLoginBtn = message.reason === "NOT_LOGGED_IN";
       enterView({ kind: "IDLE" });
       if (message.reason === "ALREADY_RECORDING") {
         // Hiện lại phiên đang chạy để nút Dừng với tới được.
@@ -282,6 +302,8 @@ browser.runtime.onMessage.addListener((message: Message) => {
     case "VIDEO_RECOVERED":
     case "STORAGE_ALERT":
     case "RECORDING_ACTIVE":
+    case "LMS_GET_CONTEXT":
+    case "LMS_END_CLASS":
       return;
     default:
       return assertNever(message);

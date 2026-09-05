@@ -1,14 +1,20 @@
 import type { SessionState } from "../core/state-machine";
+import type { LmsGuardResult } from "@/src/adapters/lms/types";
+
+export type { LmsGuardResult };
 
 /**
- * Why a start request was refused. The first two mirror `GuardResult`'s reasons
- * (`src/core/tab-guard.ts`); the rest are refusals only the background service
- * worker can decide, because only it owns active-session state and only it can
- * ask the offscreen document for microphone permission state.
+ * Why a start request was refused. Covers LMS guard reasons and background
+ * service worker refusals (active-session state, mic permission, storage space,
+ * backlog).
  */
 export type GuardFailureReason =
   | "NOT_MEET_TAB"
-  | "MEETING_CODE_MISMATCH"
+  | "NOT_LOGGED_IN"
+  | "NO_ACTIVE_CLASS"
+  | "NOT_YOUR_CLASS"
+  | "OUTSIDE_SCHEDULE"
+  | "NETWORK_ERROR"
   | "ALREADY_RECORDING"
   | "START_FAILED"
   | "MIC_PERMISSION_DENIED"
@@ -48,6 +54,7 @@ export interface ActiveSessionInfo {
   meetingCode: string;
   status: ActiveSessionStatus;
   startedAtMs: number;
+  classroomId?: number;
 }
 
 /** Reply to `GET_RECORDING_STATE`, sent by background via `sendResponse`. */
@@ -81,6 +88,10 @@ export type Message =
   | { type: "START_RECORDING"; tabId: number }
   | { type: "STOP_RECORDING"; sessionId: string }
   | { type: "GET_RECORDING_STATE" }
+  // popup → background: yêu cầu lấy LMS context và kiểm tra guard
+  | { type: "LMS_GET_CONTEXT"; meetingCode: string }
+  // content script → background: yêu cầu kết thúc lớp và xoá cache LMS
+  | { type: "LMS_END_CLASS" }
   // content script → background: Meet's own mute button, detected via a
   // MutationObserver on its `data-is-muted` attribute (fails soft — if Meet
   // ever changes this markup, the button is just never found and recording
